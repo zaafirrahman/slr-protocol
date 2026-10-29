@@ -27,7 +27,7 @@ app = Flask(
     static_folder=str(BASE_DIR / "static"),
 )
 
-# ---- Pemilihan provider AI: LLM_PROVIDER=ollama (lokal, default) atau deepseek (API) ----
+# ---- Pemilihan provider AI: LLM_PROVIDER=ollama (lokal, default) atau deepseek (API) ---
 LLM_PROVIDER = (os.getenv("LLM_PROVIDER", "ollama").strip().lower() or "ollama")
 if LLM_PROVIDER not in ("ollama", "deepseek"):
     raise SystemExit(f"LLM_PROVIDER='{LLM_PROVIDER}' tidak dikenal. Pakai 'ollama' atau 'deepseek' di file .env.")
