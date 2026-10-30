@@ -1,6 +1,8 @@
 import os
 import json
 import hashlib
+import re
+import unicodedata
 import sys
 import time
 import uuid
@@ -630,25 +632,409 @@ def normalise_list(value, limit=12):
     return [str(x).strip()[:500] for x in value if str(x).strip()][:limit]
 
 
+# ---------------------------------------------------------------------------
+# Codebook research onion (Saunders dkk., 2019) — SATU sumber kebenaran.
+# Dipakai oleh: prompt ekstraksi, validasi keluaran AI, dan taksonomi desain riset.
+# Mengubah nilai di sini otomatis mengubah ketiganya. Naikkan CODEBOOK_VERSION bila
+# arti/daftar kode berubah, supaya artikel lama bisa dikenali dan dianalisis ulang.
+# Kode bertanda [ekstensi] bukan dari Saunders; ditambahkan agar cocok dengan riset
+# pemodelan/optimasi (lihat catatan dosen: Experiment = Modeling & Simulation).
+# ---------------------------------------------------------------------------
+CODEBOOK_VERSION = "onion-saunders2019-v3"  # v3: basis per nilai, label eksplisit wajib bukti, aturan time_horizon
+NOT_STATED = "not_stated"
+# Versi format hasil analisis per artikel. Naikkan bila skema/aturan ekstraksi berubah: artikel dengan versi lebih rendah
+# boleh diunggah ulang (browser tidak lagi menganggapnya duplikat) dan hasilnya menggantikan yang lama.
+ANALYSIS_VERSION = 5  # v5: gerbang istilah pada kutipan synthetic_simulated
+
+
+def _cv(label, definition):
+    return {"label": label, "def": definition}
+
+
+RESEARCH_ONION = {
+    "philosophy": {
+        "label": "Philosophy", "multi": False,
+        "values": {
+            "positivism": _cv("Positivism", "realitas objektif; hipotesis/model diuji dengan data terukur"),
+            "critical_realism": _cv("Critical realism", "realitas ada tetapi dipahami lewat mekanisme yang tak selalu teramati"),
+            "interpretivism": _cv("Interpretivism", "realitas dibentuk makna sosial; memahami pengalaman subjek"),
+            "postmodernism": _cv("Postmodernism", "menantang klaim kebenaran tunggal; fokus wacana dan kekuasaan"),
+            "pragmatism": _cv("Pragmatism", "metode dipilih menurut kegunaannya menjawab masalah"),
+        },
+    },
+    "approach": {
+        "label": "Approach to theory development", "multi": False,
+        "values": {
+            "deductive": _cv("Deduktif", "menguji teori/model/hipotesis yang sudah ada dengan data"),
+            "inductive": _cv("Induktif", "membangun pola atau teori dari data"),
+            "abductive": _cv("Abduktif", "bolak-balik antara data dan teori untuk penjelasan terbaik"),
+        },
+    },
+    "methodological_choice": {
+        "label": "Methodological choice", "multi": False,
+        "values": {
+            "mono_quantitative": _cv("Mono-method kuantitatif", "satu teknik pengumpulan data kuantitatif + analisis kuantitatif"),
+            "mono_qualitative": _cv("Mono-method kualitatif", "satu teknik pengumpulan data kualitatif + analisis kualitatif"),
+            "multi_method_quantitative": _cv("Multi-method kuantitatif", "lebih dari satu teknik pengumpulan data kuantitatif, tanpa kualitatif"),
+            "multi_method_qualitative": _cv("Multi-method kualitatif", "lebih dari satu teknik pengumpulan data kualitatif, tanpa kuantitatif"),
+            "mixed_method_simple": _cv("Mixed-method simple", "kuantitatif + kualitatif, dilakukan sederhana/satu fase"),
+            "mixed_method_complex": _cv("Mixed-method complex", "kuantitatif + kualitatif, beberapa fase atau saling melengkapi"),
+        },
+    },
+    "strategy": {
+        "label": "Strategy", "multi": True,
+        "values": {
+            "experiment_modeling_simulation": _cv("Experiment — Modeling & Simulation", "model (matematis/ML/optimasi/simulasi) dibangun lalu diuji lewat eksperimen numerik atau simulasi komputasi"),
+            "experiment_other": _cv("Experiment — laboratorium/lapangan", "perlakuan diberikan pada subjek atau proses nyata [ekstensi]"),
+            "survey": _cv("Survey", "data dari sampel responden lewat kuesioner/instrumen terstandar"),
+            "archival_research": _cv("Archival research", "menganalisis arsip/dokumen/dataset yang sudah ada (data historis, dataset publik)"),
+            "case_study": _cv("Case study", "kajian mendalam kasus NYATA (organisasi, lokasi, sistem) yang disebut penulis sebagai studi kasus untuk studinya sendiri; contoh numerik atau benchmark bukan case study"),
+            "ethnography": _cv("Ethnography", "pengamatan mendalam budaya/praktik dalam setting alami"),
+            "grounded_theory": _cv("Grounded theory", "teori disusun bertahap dari data lapangan"),
+            "narrative_inquiry": _cv("Narrative inquiry", "analisis kisah/narasi partisipan"),
+            "action_research": _cv("Action research", "peneliti bersama praktisi mengubah dan mengevaluasi praktik"),
+            "other": _cv("Lainnya", "strategi di luar daftar (mis. studi konseptual, systematic review) [ekstensi]"),
+        },
+    },
+    "time_horizon": {
+        "label": "Time horizon", "multi": False,
+        "values": {
+            "cross_sectional": _cv("Cross-sectional", "fenomena diamati pada satu titik/periode waktu (snapshot), mis. survei yang dilakukan sekali"),
+            "longitudinal": _cv("Longitudinal", "pengamatan berulang, atau data deret waktu historis yang dianalisis sepanjang periode"),
+            "not_applicable": _cv("Tidak relevan", "studi pemodelan/optimasi/simulasi/eksperimen numerik tanpa pengamatan lintas waktu; nilai baku untuk studi simulasi [ekstensi]"),
+        },
+    },
+    "data_source": {
+        "label": "Data collection", "multi": True,
+        "values": {
+            "secondary": _cv("Data sekunder", "data yang dikumpulkan pihak lain atau sudah tersedia"),
+            "synthetic_simulated": _cv("Data sintetis / hasil simulasi", "data dibangkitkan peneliti lewat simulasi atau generator [ekstensi]"),
+            "primary_interview": _cv("Primer — wawancara", "data baru dari wawancara"),
+            "primary_observation": _cv("Primer — observasi", "data baru dari pengamatan langsung"),
+            "primary_questionnaire": _cv("Primer — kuesioner", "data baru dari kuesioner"),
+            "primary_other": _cv("Primer — lainnya", "data primer lain, mis. sensor atau eksperimen lab [ekstensi]"),
+        },
+    },
+    "analysis": {
+        "label": "Data analysis", "multi": True,
+        "values": {
+            "quantitative_analysis": _cv("Analisis kuantitatif", "statistik, optimasi, pemodelan numerik, pembelajaran mesin"),
+            "qualitative_analysis": _cv("Analisis kualitatif", "analisis tematik/isi/naratif atas teks, wawancara, observasi"),
+        },
+    },
+}
+
+# Pengelompokan nilai methodological_choice menjadi cabang Quan / Qual / Mix seperti di papan tulis dosen.
+METHOD_GROUPS = [
+    ("quantitative", "Kuantitatif", ["mono_quantitative", "multi_method_quantitative"],
+     "Data dan analisis numerik, statistik, atau komputasional."),
+    ("qualitative", "Kualitatif", ["mono_qualitative", "multi_method_qualitative"],
+     "Data dan analisis berbasis makna: teks, wawancara, observasi."),
+    ("mixed", "Campuran (mixed)", ["mixed_method_simple", "mixed_method_complex"],
+     "Menggabungkan kuantitatif dan kualitatif."),
+]
+CORE_STRATEGIES = ("experiment_modeling_simulation", "survey", "archival_research", "case_study")
+
+# Label yang hanya boleh dipakai bila penulis menyebut istilahnya sendiri untuk studinya, dengan kutipan terverifikasi
+# yang memuat istilah itu. Tebakan AI untuk label ini dibuang, bukan sekadar diberi tanda 'inferred'.
+# Alasan: dari 5 artikel contoh, 'case_study' diberikan ke 3 artikel padahal hanya 1 yang benar-benar studi kasus,
+# dan 'positivism' diberikan ke 2 dari 5 artikel yang sebenarnya serupa (tebakan yang tidak konsisten).
+EXPLICIT_TERMS = {
+    "philosophy": {
+        "positivism": r"positivis", "critical_realism": r"critical realis|realisme kritis",
+        "interpretivism": r"interpretiv", "postmodernism": r"postmodern", "pragmatism": r"pragmati",
+    },
+    "strategy": {
+        "survey": r"survey|questionnaire|survei|kuesioner", "case_study": r"case[- ]stud|studi kasus",
+        "ethnography": r"ethnograph|etnograf", "grounded_theory": r"grounded theory",
+        "narrative_inquiry": r"narrative inquiry|narrative analysis|inkuiri naratif",
+        "action_research": r"action research|penelitian tindakan",
+    },
+}
+
+
+# Label yang kutipan buktinya harus memuat istilahnya. Berbeda dari EXPLICIT_TERMS: boleh 'inferred', tetapi bila AI
+# melampirkan kutipan, kutipan itu harus relevan. Kutipan yang ADA di PDF tetapi tidak memuat istilah label bukan dukungan.
+# Tanpa kutipan, label tetap diterima sebagai 'inferred' (tetap tampil sebagai tebakan). Dasar: dari 5 artikel contoh,
+# 'synthetic_simulated' keliru diberikan ke artikel PM2.5 (data publik nyata) dengan kutipan tentang sample average
+# approximation, sedangkan 4 label sintetis yang benar semuanya memuat istilahnya.
+EVIDENCE_TERMS = {
+    "data_source": {
+        "synthetic_simulated": re.compile(
+            r"synthetic|simulat|generat|artificial|sintetis|simulasi|dibangkitkan|randomly\s+(?:sampl|draw)|numerical\s+(?:example|experiment)",
+            re.IGNORECASE),
+    },
+}
+
+
+def apply_evidence_gates(design):
+    """Buang label yang kutipannya tidak memuat istilah yang relevan (lihat EVIDENCE_TERMS)."""
+    for field, codes in EVIDENCE_TERMS.items():
+        item = design.get(field)
+        if not isinstance(item, dict) or not isinstance(item.get("items"), list):
+            continue
+        kept = []
+        for e in item["items"]:
+            pattern = codes.get(e.get("code"))
+            if pattern and e.get("evidence") and not pattern.search(e["evidence"]):
+                design.setdefault("warnings", []).append(
+                    f"{field}: '{e['code']}' dibuang karena kutipan buktinya tidak memuat istilah yang relevan (kutipan ada di teks, tetapi tidak mendukung label ini).")
+                continue
+            kept.append(e)
+        if len(kept) != len(item["items"]):
+            item["items"] = kept
+            item["value"] = [e["code"] for e in kept]
+            item["basis"] = NOT_STATED if not kept else ("stated" if all(e["basis"] == "stated" for e in kept) else "inferred")
+    return design
+
+
+# Pemulihan (recall) deterministik untuk label eksplisit yang terlewat AI. Hanya kalimat orang pertama yang menyebut
+# metode itu untuk studinya sendiri ("we present a ... case study"). Sengaja SEMPIT: kalimat pustaka ("case studies
+# from Canada ...") dan judul bagian ("4. Case studies") tidak cocok. Kode lain (survey dst.) sengaja belum ditambahkan:
+# "we survey the literature" bukan survei kuesioner, dan belum ada kasus terlewat yang teramati untuk kode itu.
+_SELF_SUBJECT = r"(?:\bwe|\bthis\s+(?:paper|study|article|work|research)|\bour\s+(?:paper|study|article|work|research))"
+_SELF_VERB = r"(?:present|conduct|perform|carry\s+out|carried\s+out|undertake|undertook|report|design)\w*"
+SELF_REFERENCE_RULES = {
+    "strategy": {
+        "case_study": re.compile(
+            rf"{_SELF_SUBJECT}\s+(?:[\w,-]+\s+){{0,2}}?{_SELF_VERB}\s+(?:[\w,-]+\s+){{0,6}}?case[- ]stud(?:y|ies)",
+            re.IGNORECASE),
+    },
+}
+
+
+def apply_self_reference_rules(design, page_texts, page_norms, full_norm):
+    """Tambahkan label eksplisit yang tidak diusulkan AI tetapi disebut penulis sendiri (lihat SELF_REFERENCE_RULES).
+    Hasilnya selalu 'stated' dengan kutipan terverifikasi (dibangun dari teks itu sendiri) dan ditandai source='rule'
+    serta dicatat di warnings agar pengguna tahu label ini bukan usulan AI."""
+    for field, codes in SELF_REFERENCE_RULES.items():
+        item = design.get(field)
+        if not isinstance(item, dict) or not RESEARCH_ONION[field]["multi"]:
+            continue
+        for code, pattern in codes.items():
+            if code in (item.get("value") or []):
+                continue
+            for page_num, page_text in page_texts:
+                match = pattern.search(re.sub(r"\s+", " ", page_text))
+                if not match:
+                    continue
+                evidence = match.group(0)[:400]
+                verified, _ = verify_quote(evidence, page_norms, full_norm)
+                if not verified:
+                    continue
+                items = list(item.get("items") or [])
+                items.append({"code": code, "basis": "stated", "evidence": evidence, "evidence_verified": True,
+                              "source": "rule", "page": page_num})
+                item["items"] = items
+                item["value"] = [e["code"] for e in items]
+                item["basis"] = "stated" if all(e["basis"] == "stated" for e in items) else "inferred"
+                design.setdefault("warnings", []).append(
+                    f"{field}: '{code}' ditambahkan oleh aturan karena penulis menulis \u201c{evidence}\u201d (hal. {page_num}); AI tidak mengusulkannya. Periksa kebenarannya.")
+                break
+    return design
+
+
+def codebook_prompt_block():
+    """Daftar kode + definisi singkat untuk disisipkan ke prompt ekstraksi."""
+    lines = []
+    for field, spec in RESEARCH_ONION.items():
+        mode = "boleh lebih dari satu" if spec["multi"] else "pilih satu"
+        vals = "; ".join(f"{key} = {meta['def']}" for key, meta in spec["values"].items())
+        lines.append(f"- {field} ({mode}): {vals}")
+    return "\n".join(lines)
+
+
+def research_design_schema_block():
+    """Bentuk JSON research_design yang diminta dari AI (dibangun dari codebook agar selalu sinkron).
+    Field yang boleh lebih dari satu nilai memakai basis dan bukti PER NILAI."""
+    parts = []
+    for field, spec in RESEARCH_ONION.items():
+        if spec["multi"]:
+            parts.append(
+                f'    "{field}": {{"values": [{{"code": "kode", "basis": "stated|inferred", '
+                f'"evidence": "kutipan persis maks 25 kata yang mendukung KODE INI, atau kosong"}}]}}'
+            )
+        else:
+            parts.append(
+                f'    "{field}": {{"value": "kode", "basis": "stated|inferred|not_stated", '
+                f'"evidence": "kutipan persis maks 25 kata, atau kosong"}}'
+            )
+    parts.append('    "techniques": ["metode/algoritma/model yang benar-benar dipakai penulis, maks 8"]')
+    return "{\n" + ",\n".join(parts) + "\n  }"
+
+
+# ---- Pencocokan kutipan: kutipan dari AI harus benar-benar ada di teks PDF ----
+def match_norm(text):
+    """Normalisasi untuk membandingkan kutipan dengan teks PDF.
+    Semua karakter non-huruf/angka dibuang, sehingga perbedaan spasi, tanda hubung, pemenggalan
+    baris, dan ligatur (ﬁ → fi) tidak membuat kutipan yang sebenarnya benar dianggap salah."""
+    text = unicodedata.normalize("NFKC", str(text or "")).lower()
+    text = re.sub(r"\[[\d,;\s\u2013\u2212-]+\]", "", text)  # penanda sitasi numerik [59,60] sering dihilangkan saat mengutip
+    return re.sub(r"[\W_]+", "", text)
+
+
+def verify_quote(quote, page_norms, full_norm):
+    """Return (verified, page). page hanya terisi bila kutipan ditemukan utuh pada satu halaman."""
+    q = match_norm(quote)
+    if len(q) < 12:
+        return False, None
+    for page_num, page_text in page_norms:
+        if q in page_text:
+            return True, page_num
+    if q in full_norm:  # kutipan melintasi batas halaman
+        return True, None
+    parts = [match_norm(p) for p in re.split(r"\[\.\.\.\]|\.\.\.|…", str(quote))]
+    parts = [p for p in parts if len(p) >= 12]
+    if len(parts) >= 2 and all(p in full_norm for p in parts):  # kutipan dengan elipsis
+        return True, None
+    return False, None
+
+
+# ---- Pembacaan PDF: buang daftar pustaka, potong dengan menjaga bagian akhir ----
+RAW_TEXT_HARD_CAP = 600000
+REF_HEADING = re.compile(
+    r"^[ \t]*(?:\d{1,2}[.)]?[ \t]+)?(?:references|bibliography|daftar pustaka|referensi|literature cited)[ \t]*:?[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+TRIM_MARKER = "\n\n[... bagian tengah dipotong karena batas panjang teks ...]\n\n"
+
+
+def strip_references(text):
+    """Buang daftar pustaka: bukan bukti ekstraksi, tetapi memakan 10-20% jatah karakter."""
+    for match in REF_HEADING.finditer(text):
+        if match.start() > len(text) * 0.35:  # abaikan kata 'References' di awal dokumen
+            return text[:match.start()].rstrip(), True
+    return text, False
+
+
+def trim_text(text, limit):
+    """Bila terlalu panjang, simpan 70% awal + sisanya dari AKHIR dokumen.
+    Dulu hanya bagian awal yang disimpan sehingga limitations, future research, dan kesimpulan hilang."""
+    if len(text) <= limit:
+        return text, False
+    head = int(limit * 0.7)
+    tail = max(0, limit - head - len(TRIM_MARKER))
+    return text[:head].rstrip() + TRIM_MARKER + text[len(text) - tail:].lstrip(), True
+
+
 def read_pdf(pdf_bytes):
+    """Return (jumlah_halaman, teks_untuk_AI, info). info: chars_original, truncated,
+    references_removed, page_texts [(nomor_halaman, teks)] untuk verifikasi kutipan."""
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as exc:
         raise ValueError("File tidak dapat dibaca sebagai PDF yang valid.") from exc
     pages = len(doc)
-    chunks = []
+    chunks, page_texts, total = [], [], 0
     for page_num, page in enumerate(doc, start=1):
         page_text = page.get_text("text").strip()
         if page_text:
-            chunks.append(f"\n\n[PAGE {page_num}]\n{page_text}")
-        if sum(len(c) for c in chunks) >= MAX_TEXT_CHARS:
+            page_texts.append((page_num, page_text))
+            chunk = f"\n\n[PAGE {page_num}]\n{page_text}"
+            chunks.append(chunk)
+            total += len(chunk)
+        if total >= RAW_TEXT_HARD_CAP:
             break
-    text = "".join(chunks)[:MAX_TEXT_CHARS]
     doc.close()
-    return pages, text
+    full = "".join(chunks)
+    body, references_removed = strip_references(full)
+    text, truncated = trim_text(body, MAX_TEXT_CHARS)
+    info = {
+        "chars_original": len(full),
+        "chars_body": len(body),  # isi artikel tanpa daftar pustaka: dasar perhitungan bagian yang dilewati
+        "truncated": truncated,
+        "references_removed": references_removed,
+        "page_texts": page_texts,
+    }
+    return pages, text, info
+
+
+def _code(v):
+    return str(v or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _raw_entries(item):
+    """Daftar (kode, basis, evidence, bentuk_lama) dari bentuk per-nilai atau bentuk lama (satu basis per field)."""
+    if isinstance(item, dict) and isinstance(item.get("values"), list):
+        out = []
+        for e in item["values"]:
+            if isinstance(e, dict):
+                out.append((e.get("code", e.get("value")), e.get("basis"), e.get("evidence"), False))
+            else:
+                out.append((e, None, None, False))
+        return out
+    if not isinstance(item, dict):
+        item = {"value": item}  # model hanya mengirim nilai polos
+    values = item.get("value")
+    values = values if isinstance(values, list) else [values]
+    return [(v, item.get("basis"), item.get("evidence"), True) for v in values]
+
+
+def normalise_research_design(raw, page_norms, full_norm):
+    """Validasi research_design dari AI terhadap codebook.
+    - nilai di luar codebook dibuang (dicatat di warnings);
+    - basis 'stated' hanya dipertahankan bila kutipan buktinya benar-benar ada di teks; selain itu 'inferred';
+    - pada field multi-nilai, basis dan bukti dinilai PER NILAI (satu kutipan tidak boleh 'menyatakan' dua label);
+    - label di EXPLICIT_TERMS dibuang bila tidak 'stated' dengan kutipan yang memuat istilahnya.
+    Ini mencegah tebakan tampil sebagai fakta."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = {"codebook_version": CODEBOOK_VERSION}
+    warnings = []
+    for field, spec in RESEARCH_ONION.items():
+        raw_entries = _raw_entries(raw.get(field))
+        valid_codes = {_code(e[0]) for e in raw_entries if _code(e[0]) in spec["values"]}
+        shared_evidence = len(valid_codes) > 1 and any(e[3] for e in raw_entries)  # bentuk lama: 1 bukti untuk >1 nilai
+        entries, seen = [], set()
+        for code_raw, basis, evidence, legacy in raw_entries:
+            code = _code(code_raw)
+            if not code or code == NOT_STATED:
+                continue
+            if code not in spec["values"]:
+                warnings.append(f"{field}: nilai '{str(code_raw)[:40]}' tidak ada di codebook, diabaikan.")
+                continue
+            if code in seen:
+                continue
+            seen.add(code)
+            basis = str(basis or "").strip().lower()
+            if basis not in ("stated", "inferred"):
+                basis = "inferred"
+            evidence = safe_string(evidence)[:400]
+            verified = bool(evidence) and verify_quote(evidence, page_norms, full_norm)[0]
+            if legacy and shared_evidence and basis == "stated":
+                warnings.append(f"{field}: satu kutipan dipakai untuk beberapa nilai; semua diturunkan ke 'inferred'.")
+                basis = "inferred"
+            if basis == "stated" and not verified:
+                warnings.append(f"{field}: '{code}' ditandai 'stated' tetapi kutipan bukti tidak ditemukan di teks; diturunkan ke 'inferred'.")
+                basis = "inferred"
+            pattern = EXPLICIT_TERMS.get(field, {}).get(code)
+            if pattern and not (basis == "stated" and re.search(pattern, evidence, re.IGNORECASE)):
+                warnings.append(f"{field}: '{code}' dibuang karena label ini hanya boleh dipakai bila penulis menyebutnya sendiri (kutipan terverifikasi yang memuat istilahnya).")
+                continue
+            if field == "time_horizon" and code == "not_applicable":
+                # Ketiadaan dimensi waktu tidak bisa dikutip; kutipan yang diberikan AI biasanya soal horizon perencanaan model.
+                basis, evidence, verified = "inferred", "", False
+            entries.append({"code": code, "basis": basis, "evidence": evidence, "evidence_verified": verified})
+        if not spec["multi"]:
+            entries = entries[:1]
+        if not entries:
+            out[field] = {"value": [] if spec["multi"] else NOT_STATED, "basis": NOT_STATED, "evidence": "", "evidence_verified": False}
+            if spec["multi"]:
+                out[field]["items"] = []
+            continue
+        if spec["multi"]:
+            agg = "stated" if all(e["basis"] == "stated" for e in entries) else "inferred"
+            out[field] = {"value": [e["code"] for e in entries], "basis": agg, "items": entries, "evidence": "", "evidence_verified": False}
+        else:
+            e = entries[0]
+            out[field] = {"value": e["code"], "basis": e["basis"], "evidence": e["evidence"], "evidence_verified": e["evidence_verified"]}
+    out["techniques"] = [t[:80] for t in normalise_list(raw.get("techniques"), 8)]
+    out["warnings"] = warnings[:14]
+    return out
 
 
 def article_prompt(filename, pages, text, research_question, inclusion, exclusion):
+    codebook_block = codebook_prompt_block()
+    design_schema = research_design_schema_block()
     return f"""Anda adalah asisten ekstraksi bukti untuk systematic literature review. Analisis artikel ilmiah berikut dengan teliti.
 
 ATURAN PENTING:
@@ -657,7 +1043,22 @@ ATURAN PENTING:
 - Bedakan temuan yang benar-benar dilaporkan artikel dari interpretasi Anda.
 - Setiap evidence quote harus berupa kutipan pendek yang benar-benar ada di teks, dengan nomor PAGE jika dapat dipastikan. Jika tidak dapat menemukan kutipan, kosongkan.
 - Screening adalah rekomendasi awal AI, bukan keputusan final. Beri keputusan "include", "exclude", atau "review" dan alasan transparan.
+- Teks dapat dipotong. Bila ada penanda "[... bagian tengah dipotong ...]", bagian itu tidak tersedia: jangan menyimpulkan isinya, dan kosongkan field yang tidak terdukung teks.
 - Jawaban hanya JSON valid, tanpa markdown.
+
+ATURAN research_design (kerangka research onion, Saunders dkk.):
+- Pilih nilai HANYA dari daftar kode di bawah (huruf kecil persis seperti tertulis). Nilai di luar daftar akan dibuang.
+- basis = "stated" hanya bila artikel sendiri menyatakannya DAN Anda menyalin kutipan persis (maks 25 kata) ke evidence. Bila hanya Anda simpulkan dari cara studi dilakukan, basis = "inferred". Bila tidak dinyatakan dan tidak dapat disimpulkan dengan kuat, value = "not_stated" (untuk field yang boleh lebih dari satu: array kosong).
+- Field yang boleh lebih dari satu nilai (strategy, data_source, analysis) memakai "values": tiap kode punya basis dan evidence SENDIRI. Kutipan harus mendukung kode itu, bukan kode lain.
+- philosophy: isi HANYA bila penulis menyebut istilahnya (mis. positivist, interpretivist, pragmatism) untuk studinya sendiri, dengan kutipan. Jangan menyimpulkan; selain itu not_stated. Tebakan akan dibuang sistem.
+- approach: deductive bila artikel menguji metode/model/hipotesis yang telah dirumuskan terhadap data atau benchmark; inductive bila membangun pola atau teori dari data tanpa hipotesis awal; not_stated bila ragu. Terapkan konsisten pada artikel yang serupa.
+- strategy: experiment_modeling_simulation untuk model matematis/ML/optimasi yang diuji lewat eksperimen numerik atau simulasi; archival_research bila menganalisis dataset historis atau publik yang sudah ada (boleh disimpulkan). Kode survey, case_study, ethnography, grounded_theory, narrative_inquiry, dan action_research HANYA boleh dipakai bila penulis sendiri menyebut metode itu untuk studinya sendiri (bukan saat membahas pustaka lain) dan Anda menyalin kutipannya. Contoh numerik, benchmark, atau data publik suatu wilayah BUKAN case_study; case_study butuh kasus nyata (organisasi, lokasi, sistem) yang disebut penulis sebagai studi kasus.
+- data_source: bedakan secondary (dikumpulkan pihak lain) dari synthetic_simulated (data dibangkitkan peneliti lewat simulasi atau generator). Diskretisasi skenario, sampling untuk optimasi stokastik (mis. sample average approximation), dan data historis BUKAN data sintetis.
+- time_horizon: jawab berurutan. (1) Artikel menganalisis data deret waktu historis dengan rentang periode yang disebut (mis. data harian 2004-2021) = longitudinal. (2) Pengamatan atau survei dilakukan sekali pada satu waktu = cross_sectional. (3) Selain itu (pemodelan, optimasi, simulasi, eksperimen numerik tanpa pengamatan lintas waktu) = not_applicable (kosongkan evidence). Jangan keliru: "rolling horizon", "planning horizon", "total horizon" adalah horizon perencanaan model optimasi, BUKAN time horizon penelitian.
+- techniques: maksimal 8 nama metode/algoritma/model yang benar-benar dipakai penulis, istilah singkat sesuai artikel (mis. "column generation", "LSTM"), bukan kata generik.
+
+KODE research_design:
+{codebook_block}
 
 KONTEKS REVIEW
 Research question: {research_question or '(belum ditentukan)'}
@@ -680,6 +1081,7 @@ Kembalikan JSON dengan struktur berikut:
   "research_questions": ["RQ yang dinyatakan artikel, bukan pertanyaan ciptaan"],
   "methods": "metode, desain, sampel/data, dan teknik analisis, maks 700 karakter",
   "context": "sektor, populasi, lokasi, atau konteks penelitian, maks 400 karakter",
+  "research_design": {design_schema},
   "variables": ["variabel/konstruk kunci"],
   "findings": ["maksimal 6 temuan utama yang spesifik, singkat, dan berbasis teks"],
   "limitations": ["maksimal 3 keterbatasan yang dinyatakan penulis; jangan mengada-ada"],
@@ -714,6 +1116,7 @@ def compact_article(a):
         "topic_tags": normalise_list(a.get("topic_tags"), 8),
         "concepts": a.get("concepts", [])[:10] if isinstance(a.get("concepts"), list) else [],
         "relationships": a.get("relationships", [])[:10] if isinstance(a.get("relationships"), list) else [],
+        "design": compact_design(a),
     }
 
 
@@ -766,7 +1169,7 @@ Kembalikan objek JSON dengan struktur:
 
 def final_synthesis_prompt(batch_summaries, article_catalog, rq, inclusion, exclusion):
     return f"""Anda menyusun hasil akhir systematic literature review berdasarkan korpus artikel yang sudah disaring dan diputuskan INCLUDE oleh pengguna. Berikan sintesis lintas artikel secara kritis dan transparan.
-ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan. Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Kategori taxonomy harus konsisten dan dapat dijelaskan. System map hanya memuat hubungan yang punya dasar pada artikel, bukan hubungan spekulatif tanpa label. Jawaban harus JSON valid tanpa markdown.
+ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan. Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Taxonomy topik dibuat pada langkah terpisah; jangan membuat taxonomy di sini. System map hanya memuat hubungan yang punya dasar pada artikel, bukan hubungan spekulatif tanpa label. Jawaban harus JSON valid tanpa markdown.
 
 Research question: {rq or 'Rumuskan usulan RQ dari korpus, tandai sebagai usulan yang perlu disetujui pengguna.'}
 Kriteria inklusi: {inclusion or '(tidak ditentukan)'}
@@ -788,13 +1191,6 @@ Kembalikan JSON:
  "contradictions":[{{"issue":"temuan yang berbeda","article_ids":["ID"],"possible_explanation":"penjelasan potensial ditandai sebagai hipotesis bila belum diuji"}}],
  "research_gaps":[{{"gap":"celah riset","evidence":"dasar dari artikel yang direview","article_ids":["ID"],"suggested_next_step":"arah riset lanjutan"}}],
  "limitations_of_corpus":["keterbatasan korpus atau data ekstraksi; jangan mengklaim penilaian kualitas formal jika tidak dilakukan"],
- "taxonomy":{{
-   "hierarchical":{{"root":{{"id":"root","name":"konsep umum"}},"nodes":[{{"id":"h1","name":"subkategori","description":"definisi","parent_id":"root","article_ids":["ID"]}}]}},
-   "faceted":{{"facets":[{{"name":"Dimensi/facet","values":[{{"name":"nilai kategori","description":"definisi","article_ids":["ID"]}}]}}]}},
-   "flat":[{{"name":"kategori sejajar","description":"kriteria kategori","article_ids":["ID"]}}],
-   "polyhierarchy":{{"nodes":[{{"id":"node-1","name":"konsep","description":"definisi","parent_ids":["node-parent"],"article_ids":["ID"]}}],"edges":[{{"from":"node-1","to":"node-parent","relation":"subkategori dari"}}]}},
-   "matrix":{{"row_axis_name":"Dimensi baris","column_axis_name":"Dimensi kolom","columns":["dimensi 1","dimensi 2"],"rows":[{{"name":"baris","cells":[{{"column":"dimensi 1","summary":"temuan atau kosong jika tidak ada bukti","article_ids":["ID"]}}]}}]}}
- }},
  "system_map":{{
    "nodes":[{{"id":"n1","label":"konsep","type":"concept|factor|outcome|context|method","article_ids":["ID"]}}],
    "edges":[{{"source":"n1","target":"n2","label":"hubungan yang didukung bukti","direction":"positive|negative|mixed|unknown","article_ids":["ID"]}}]
@@ -803,8 +1199,228 @@ Kembalikan JSON:
 }}
 """
 
+def compact_design(a):
+    """Ringkasan research_design untuk prompt sintesis batch (hemat token)."""
+    d = a.get("research_design")
+    if not isinstance(d, dict):
+        return {}
+    def pick(field):
+        item = d.get(field)
+        return item.get("value") if isinstance(item, dict) else None
+    return {
+        "methodological_choice": pick("methodological_choice"),
+        "strategy": pick("strategy"),
+        "data_source": pick("data_source"),
+        "techniques": normalise_list(d.get("techniques"), 8),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Taksonomi DESAIN RISET: dihitung oleh kode dari label research_design, tanpa LLM.
+# AI hanya mengklasifikasikan satu artikel ke kode codebook; pohonnya disusun dengan
+# pengelompokan (group-by). Karena satu field hanya punya satu nilai per artikel,
+# kategori sejajar pada field yang sama tidak bisa tumpang tindih.
+# ---------------------------------------------------------------------------
+def _node(node_id, name, kind, definition="", article_ids=None, children=None, inferred=0, note=""):
+    ids = list(dict.fromkeys(article_ids or []))
+    return {
+        "id": node_id, "name": name, "kind": kind, "definition": definition, "note": note,
+        "article_ids": ids, "count": len(ids), "inferred_count": inferred,
+        "children": children or [],
+    }
+
+
+def _tech_key(name):
+    return re.sub(r"[\W_]+", " ", unicodedata.normalize("NFKC", str(name)).lower()).strip()
+
+
+def _group_by_value(articles, field):
+    """Return ({kode: {ids, inferred}}, [id artikel tanpa nilai]). Basis dibaca per nilai bila tersedia."""
+    by_value, none_ids = {}, []
+    for a in articles:
+        item = a["research_design"].get(field)
+        item = item if isinstance(item, dict) else {}
+        values = item.get("value")
+        values = values if isinstance(values, list) else ([values] if values and values != NOT_STATED else [])
+        if not values:
+            none_ids.append(a["id"])
+            continue
+        per_value = {e.get("code"): e.get("basis") for e in item.get("items", []) if isinstance(e, dict)}
+        for v in values:
+            slot = by_value.setdefault(v, {"ids": [], "inferred": []})
+            slot["ids"].append(a["id"])
+            if per_value.get(v, item.get("basis")) != "stated":
+                slot["inferred"].append(a["id"])
+    return by_value, none_ids
+
+
+def _value_nodes(prefix, field, by_value, none_ids, show_all=False):
+    nodes = []
+    for key, meta in RESEARCH_ONION[field]["values"].items():
+        slot = by_value.get(key)
+        if not slot and not show_all:
+            continue
+        nodes.append(_node(
+            f"{prefix}-{key}", meta["label"], "value", meta["def"],
+            slot["ids"] if slot else [], inferred=len(set(slot["inferred"])) if slot else 0,
+        ))
+    if none_ids:
+        nodes.append(_node(f"{prefix}-not_stated", "Tidak dinyatakan", "value",
+                           "Artikel tidak menyatakan dan tidak dapat disimpulkan dengan kuat.", none_ids))
+    return nodes
+
+
+def _technique_nodes(prefix, group_articles):
+    buckets = {}
+    for a in group_articles:
+        for t in a["research_design"].get("techniques") or []:
+            key = _tech_key(t)
+            if key:
+                buckets.setdefault(key, {"name": str(t), "ids": []})["ids"].append(a["id"])
+    ordered = sorted(buckets.values(), key=lambda b: (-len(set(b["ids"])), b["name"].lower()))
+    return [_node(f"{prefix}-t{i}", b["name"], "technique", "", b["ids"]) for i, b in enumerate(ordered)]
+
+
+def build_design_taxonomy(articles, topic=""):
+    """Susun pohon Metodologi / Strategi / Teknik / Fondasi dari artikel ber-research_design."""
+    usable, missing = [], []
+    for a in articles:
+        d = a.get("research_design") if isinstance(a, dict) else None
+        if isinstance(d, dict) and d.get("codebook_version") and a.get("id"):
+            usable.append(a)
+        elif isinstance(a, dict):
+            missing.append(a.get("id"))
+    all_ids = [a["id"] for a in usable]
+
+    # --- Cabang 1: Metodologi (methodological choice -> Kuantitatif / Kualitatif / Campuran -> teknik) ---
+    choice, choice_none = _group_by_value(usable, "methodological_choice")
+    method_children, group_members = [], {}
+    for gid, gname, keys, gdef in METHOD_GROUPS:
+        members = [a for a in usable if (a["research_design"]["methodological_choice"].get("value") in keys)]
+        group_members[gid] = [a["id"] for a in members]
+        note = " · ".join(
+            f"{RESEARCH_ONION['methodological_choice']['values'][k]['label']}: {len(set(choice[k]['ids']))}"
+            for k in keys if k in choice
+        )
+        method_children.append(_node(
+            f"m-{gid}", gname, "group", gdef, group_members[gid],
+            children=_technique_nodes(f"m-{gid}", members), note=note,
+        ))
+    if choice_none:
+        members = [a for a in usable if a["id"] in set(choice_none)]
+        group_members["not_stated"] = choice_none
+        method_children.append(_node(
+            "m-not_stated", "Tidak dinyatakan", "group",
+            "Pilihan metodologis tidak dapat ditentukan dari teks yang tersedia.", choice_none,
+            children=_technique_nodes("m-not_stated", members),
+        ))
+    metodologi = _node(
+        "metodologi", "Metodologi", "branch",
+        "Pilihan metodologis penelitian (lapisan methodological choice pada research onion).",
+        all_ids, children=method_children,
+    )
+
+    # --- Cabang 2: Strategi ---
+    strat, strat_none = _group_by_value(usable, "strategy")
+    strategi = _node(
+        "strategi", "Strategi", "branch",
+        "Strategi penelitian (lapisan strategies). Satu artikel boleh memakai lebih dari satu strategi.",
+        all_ids, children=_value_nodes("s", "strategy", strat, strat_none, show_all=True),
+    )
+
+    # --- Cabang 3: Teknik & prosedur (pengumpulan dan analisis data) ---
+    ds, ds_none = _group_by_value(usable, "data_source")
+    an, an_none = _group_by_value(usable, "analysis")
+    teknik = _node(
+        "teknik", "Teknik & prosedur", "branch",
+        "Lapisan terdalam research onion: bagaimana data dikumpulkan dan dianalisis.", all_ids,
+        children=[
+            _node("t-data", "Pengumpulan data", "group", "Sumber data yang dipakai.", all_ids,
+                  children=_value_nodes("d", "data_source", ds, ds_none)),
+            _node("t-analysis", "Analisis data", "group", "Cara data dianalisis.", all_ids,
+                  children=_value_nodes("a", "analysis", an, an_none)),
+        ],
+    )
+
+    # --- Cabang 4: Fondasi (philosophy, approach, time horizon) ---
+    fond_children = []
+    for gid, field, label in (("f-phil", "philosophy", "Philosophy"), ("f-appr", "approach", "Approach to theory development"),
+                              ("f-time", "time_horizon", "Time horizon")):
+        by_value, none_ids = _group_by_value(usable, field)
+        fond_children.append(_node(gid, label, "group", "", all_ids, children=_value_nodes(gid, field, by_value, none_ids)))
+    fondasi = _node(
+        "fondasi", "Fondasi & horizon waktu", "branch",
+        "Lapisan luar research onion. Sering tidak dinyatakan pada artikel teknik, jadi banyak bernilai 'inferred' atau 'tidak dinyatakan'.",
+        all_ids, children=fond_children,
+    )
+
+    root = _node("root", topic or "Korpus artikel", "root", "Topik penelitian (akar taksonomi).", all_ids,
+                 children=[metodologi, strategi, teknik, fondasi])
+
+    # --- Matriks Metodologi x Strategi: sel kosong = kandidat research gap ---
+    strategy_keys = [k for k in RESEARCH_ONION["strategy"]["values"] if k in strat or k in CORE_STRATEGIES]
+    rows = []
+    for gid, gname, _, _ in METHOD_GROUPS:
+        rows.append((gid, gname))
+    if choice_none:
+        rows.append(("not_stated", "Tidak dinyatakan"))
+    matrix_rows = []
+    for gid, gname in rows:
+        members = set(group_members.get(gid, []))
+        cells = {k: [i for i in strat.get(k, {"ids": []})["ids"] if i in members] for k in strategy_keys}
+        matrix_rows.append({"id": gid, "name": gname, "total": len(members),
+                            "cells": {k: list(dict.fromkeys(v)) for k, v in cells.items()}})
+    matrix = {
+        "columns": [{"key": k, "label": RESEARCH_ONION["strategy"]["values"][k]["label"]} for k in strategy_keys],
+        "rows": matrix_rows,
+    }
+
+    # --- Seberapa banyak label yang dinyatakan artikel vs ditebak ---
+    basis_summary = {}
+    for field in RESEARCH_ONION:
+        counts = {"stated": 0, "inferred": 0, "not_stated": 0}
+        for a in usable:
+            item = a["research_design"].get(field)
+            basis = (item or {}).get("basis", NOT_STATED) if isinstance(item, dict) else NOT_STATED
+            counts[basis if basis in counts else "inferred"] += 1
+        basis_summary[field] = {"label": RESEARCH_ONION[field]["label"], **counts}
+
+    return {
+        "codebook_version": CODEBOOK_VERSION,
+        "topic": topic or "Korpus artikel",
+        "n_articles": len([a for a in articles if isinstance(a, dict)]),
+        "n_with_design": len(usable),
+        "missing_ids": missing,
+        "tree": root,
+        "matrix": matrix,
+        "basis_summary": basis_summary,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Taksonomi TOPIK (apa yang diteliti): diusulkan AI, lalu dirapikan dan diperiksa kode.
+# ---------------------------------------------------------------------------
+def taxonomy_catalog(compact_articles):
+    """Katalog khusus prompt taksonomi. Dulu hanya id/judul/tahun/3 tag, sehingga metode dan
+    konsep artikel tidak pernah sampai ke taksonomi kecuali lewat ringkasan batch."""
+    out = []
+    for a in compact_articles:
+        concepts = a.get("concepts") if isinstance(a.get("concepts"), list) else []
+        out.append({
+            "id": a.get("id", ""),
+            "title": str(a.get("title", ""))[:140],
+            "year": a.get("year", ""),
+            "methods": safe_string(a.get("methods"))[:280],
+            "design": a.get("design", {}),
+            "concepts": [str(c.get("name", ""))[:60] for c in concepts if isinstance(c, dict) and c.get("name")][:6],
+            "topic_tags": normalise_list(a.get("topic_tags"), 6),
+        })
+    return out
+
+
 def taxonomy_only_prompt(article_catalog, batch_summaries, main_themes, rq):
-    """Generate taxonomy separately so a large synthesis response cannot crowd it out."""
+    """Taksonomi topik dibuat terpisah dari sintesis agar tidak berebut batas token."""
     compact_batches = []
     for item in batch_summaries:
         summary = item.get("summary", {}) if isinstance(item, dict) else {}
@@ -822,25 +1438,103 @@ def taxonomy_only_prompt(article_catalog, batch_summaries, main_themes, rq):
         "main_themes": main_themes[:8] if isinstance(main_themes, list) else [],
         "batch_evidence": compact_batches,
     }
-    return f"""Anda menyusun TAXONOMY konseptual untuk systematic literature review.
-Gunakan hanya bukti dalam JSON berikut. Jangan mengarang temuan, nama artikel, atau ID artikel. Semua article_ids harus berasal dari katalog artikel. Kelompokkan berdasarkan konsep yang benar-benar muncul pada bukti, bukan sekadar kata umum. Pakai istilah ringkas dan kategori yang tidak tumpang tindih secara tidak perlu.
+    return f"""Anda menyusun TAXONOMY TOPIK untuk systematic literature review: mengklasifikasikan APA yang diteliti (masalah, kerangka konseptual, keluarga pendekatan teknis, domain aplikasi). Jangan mengklasifikasikan BAGAIMANA riset dilakukan (kuantitatif/kualitatif, strategi, sumber data): itu sudah dihitung sistem secara terpisah dari field design.
+Gunakan hanya bukti dalam JSON berikut. Jangan mengarang temuan, judul artikel, atau ID artikel.
 Research question: {rq or '(belum dirumuskan)'}
 Bukti korpus:
 {json.dumps(evidence, ensure_ascii=False)}
 
-Keluarkan JSON valid saja, dengan SATU objek top-level bernama taxonomy. Buat satu taxonomy koheren dengan 4-6 konsep utama dan gunakan konsep yang sama secara konsisten di berbagai representasi. Isi representasi yang datanya didukung; bila satu bentuk tidak cocok, gunakan array kosong. Batasi ukuran keluaran agar JSON lengkap.
-Struktur yang WAJIB dipatuhi:
+ATURAN MUTU TAXONOMY
+1. Hierarki TIGA level: root, kategori utama (level 1), subkategori (level 2). Level 1 berisi 3-6 kategori; tiap kategori utama punya 2-4 subkategori; total node maksimal 20. Subkategori adalah daun: isi article_ids pada daun.
+2. Satu PRINSIP pengelompokan per level (mis. level 1 = peran dalam alur keputusan, level 2 = keluarga metode). Tulis prinsip tiap level pada hierarchical.levels. Jangan mencampur dua prinsip pada level yang sama.
+3. Kategori sejajar tidak boleh tumpang tindih. Bila satu artikel tampak cocok di dua kategori sejajar, periksa ulang prinsip pengelompokan.
+4. Setiap artikel di katalog harus masuk minimal satu daun. Bila ada yang tidak cocok, buat satu kategori "Lainnya" dan jelaskan alasannya pada definisinya; jangan membuang artikel.
+5. Gabungkan sinonim menjadi satu istilah baku (mis. "Predict-then-Optimize" dan "Predict-then-optimize framework" menjadi satu node). Pakai istilah yang benar-benar dipakai artikel, bukan kata umum.
+6. Setiap node wajib punya definisi satu kalimat yang membedakannya dari node sejajar, berdasarkan bukti.
+7. Semua article_ids harus berasal dari katalog.
+8. Representasi lain (faceted, flat, polyhierarchy, matrix) harus memakai konsep yang sama dengan hierarki. Bila tidak didukung bukti, gunakan array kosong.
+
+Keluarkan JSON valid saja, dengan SATU objek top-level bernama taxonomy. Struktur yang WAJIB dipatuhi:
 {{
  "taxonomy": {{
-  "hierarchical": {{"root": {{"id":"root","name":"Konsep utama dari korpus"}}, "nodes": [{{"id":"h1","name":"subkategori","description":"definisi berdasarkan bukti","parent_id":"root","article_ids":["ID valid"]}}]}},
+  "hierarchical": {{"levels":[{{"level":1,"principle":"prinsip pengelompokan level 1"}},{{"level":2,"principle":"prinsip pengelompokan level 2"}}], "root": {{"id":"root","name":"Konsep utama dari korpus"}}, "nodes": [{{"id":"h1","name":"kategori utama","description":"definisi satu kalimat","parent_id":"root","article_ids":[]}},{{"id":"h1a","name":"subkategori","description":"definisi satu kalimat","parent_id":"h1","article_ids":["ID valid"]}}]}},
   "faceted": {{"facets":[{{"name":"Dimensi klasifikasi","values":[{{"name":"kategori","description":"keterangan ringkas","article_ids":["ID valid"]}}]}}]}},
   "flat": [{{"name":"kategori sejajar","description":"kriteria kategori berdasarkan bukti","article_ids":["ID valid"]}}],
   "polyhierarchy": {{"nodes":[{{"id":"p1","name":"konsep","description":"definisi ringkas","parent_ids":["p2"],"article_ids":["ID valid"]}}],"edges":[{{"from":"p1","to":"p2","relation":"subkategori dari"}}]}},
   "matrix": {{"row_axis_name":"Kelompok konsep","column_axis_name":"Dimensi pembanding","columns":["dimensi A","dimensi B"],"rows":[{{"name":"kategori","cells":[{{"column":"dimensi A","summary":"temuan ringkas atau tidak cukup bukti","article_ids":["ID valid"]}}]}}]}}
  }}
 }}
-Prioritas: hierarchical dan flat harus memiliki kategori nyata jika bukti mendukung. Gunakan 4-6 node hierarkis, 3-6 kategori flat, 2-3 facets dengan 2-3 values, dan matriks ringkas. Jangan menyalin kutipan panjang. Jangan sertakan markdown atau komentar.
+Prioritas: hierarchical harus lengkap dan memenuhi aturan di atas. Representasi lain cukup ringkas (flat 3-6 kategori, faceted 2-3 facet dengan 2-3 nilai, matriks kecil). Jangan menyalin kutipan panjang. Jangan sertakan markdown atau komentar.
 """
+
+
+def finalize_hierarchy(taxonomy, valid_ids):
+    """Rapikan hierarki dari AI secara deterministik dan ukur cakupannya.
+    - id duplikat/kosong diperbaiki; parent yang tidak ada dikembalikan ke root;
+    - siklus diputus; article_ids induk = gabungan anak (roll-up);
+    - cakupan = berapa artikel valid yang punya tempat di hierarki.
+    Return (taxonomy, coverage)."""
+    tax = taxonomy if isinstance(taxonomy, dict) else {}
+    h = tax.get("hierarchical") if isinstance(tax.get("hierarchical"), dict) else {}
+    root = h.get("root") if isinstance(h.get("root"), dict) else {"id": "root", "name": "Konsep utama"}
+    root_id = str(root.get("id") or "root")
+    root["id"] = root_id
+    nodes = [n for n in (h.get("nodes") if isinstance(h.get("nodes"), list) else []) if isinstance(n, dict)]
+
+    seen = {root_id}
+    for i, n in enumerate(nodes):
+        nid = str(n.get("id") or f"h{i + 1}")
+        if nid in seen:
+            nid = f"{nid}_{i + 1}"
+        n["id"] = nid
+        seen.add(nid)
+    parent_fixes = 0
+    for n in nodes:
+        pid = str(n.get("parent_id") or root_id)
+        if pid not in seen or pid == n["id"]:
+            pid, parent_fixes = root_id, parent_fixes + 1
+        n["parent_id"] = pid
+
+    children = {}
+    for n in nodes:
+        children.setdefault(n["parent_id"], []).append(n)
+    depth, queue = {root_id: 0}, [root_id]
+    while queue:
+        cur = queue.pop(0)
+        for ch in children.get(cur, []):
+            if ch["id"] not in depth:
+                depth[ch["id"]] = depth[cur] + 1
+                queue.append(ch["id"])
+    for n in nodes:  # tidak terjangkau dari root = bagian dari siklus
+        if n["id"] not in depth:
+            n["parent_id"], parent_fixes = root_id, parent_fixes + 1
+            depth[n["id"]] = 1
+            children.setdefault(root_id, []).append(n)
+    for n in nodes:
+        n["level"] = depth[n["id"]]
+
+    by_id = {n["id"]: n for n in nodes}
+    def collect(node_id, trail=()):
+        node = by_id[node_id]
+        ids = [str(i) for i in node.get("article_ids", []) if str(i) in valid_ids]
+        for ch in children.get(node_id, []):
+            if ch["id"] not in trail:
+                ids += collect(ch["id"], trail + (node_id,))
+        node["article_ids"] = list(dict.fromkeys(ids))
+        return node["article_ids"]
+    covered = []
+    for ch in children.get(root_id, []):
+        covered += collect(ch["id"], (root_id,))
+    covered = set(covered)
+    uncovered = sorted(set(valid_ids) - covered)
+
+    h["root"], h["nodes"] = root, nodes
+    tax["hierarchical"] = h
+    return tax, {
+        "total": len(valid_ids), "covered": len(covered),
+        "uncovered_ids": uncovered, "parent_fixes": parent_fixes,
+        "max_depth": max(depth.values()) if depth else 0,
+    }
 
 
 def taxonomy_has_content(taxonomy):
@@ -934,6 +1628,27 @@ def test_ai():
         return jsonify({"ok": False, "provider": PROVIDER_LABEL, "model": MODEL, "error": str(exc)[:1800]}), 502
 
 
+@app.get("/api/codebook")
+@auth_guard
+def codebook():
+    """Codebook research onion untuk label dan tooltip di frontend."""
+    return jsonify({"version": CODEBOOK_VERSION, "analysis_version": ANALYSIS_VERSION, "fields": RESEARCH_ONION,
+                    "explicit_terms": {f: list(c) for f, c in EXPLICIT_TERMS.items()},
+                    "method_groups": [{"id": g[0], "label": g[1], "keys": g[2]} for g in METHOD_GROUPS]})
+
+
+@app.post("/api/design-taxonomy")
+@auth_guard
+def design_taxonomy():
+    """Taksonomi desain riset. Murni komputasi dari label yang sudah diekstrak: tanpa AI, tanpa biaya token."""
+    body = request.get_json(silent=True) or {}
+    articles = body.get("articles", [])
+    if not isinstance(articles, list):
+        return jsonify({"error": "Data artikel tidak valid."}), 400
+    topic = str(body.get("topic", "")).strip()[:200]
+    return jsonify(build_design_taxonomy([a for a in articles if isinstance(a, dict)][:500], topic))
+
+
 @app.post("/api/analyze")
 @auth_guard
 def analyze_pdfs():
@@ -978,22 +1693,44 @@ def analyze_pdfs():
         digest = hashlib.sha256(pdf_bytes).hexdigest()
         try:
             progress.set_fraction(0.03)
-            pages, text = read_pdf(pdf_bytes)
+            pages, text, pdf_info = read_pdf(pdf_bytes)
             if len(text.strip()) < 100:
                 errors.append({"filename": filename, "error": "Teks PDF sangat sedikit/tidak terbaca. Kemungkinan PDF hasil scan; versi ini belum memiliki OCR otomatis. Jalankan OCR terlebih dahulu lalu upload ulang."})
                 progress.log(f"{label}: dilewati, teks tidak terbaca (kemungkinan hasil scan).")
                 continue
             progress.set_fraction(0.08)
-            progress.log(f"{label}: teks siap ({fmt_int(len(text))} karakter, {pages} halaman).")
+            notes = []
+            if pdf_info["references_removed"]:
+                notes.append("daftar pustaka dibuang")
+            if pdf_info["truncated"]:
+                notes.append(f"isi artikel {fmt_int(pdf_info['chars_body'])} karakter, bagian tengah dipotong")
+            progress.log(f"{label}: teks siap ({fmt_int(len(text))} karakter, {pages} halaman)" + (f" · {'; '.join(notes)}" if notes else "") + ".")
             progress.set_phase(0.08, 0.82)
             prompt = article_prompt(filename, pages, text, research_question, inclusion, exclusion)
-            data = llm_json(prompt, max_output_tokens=3000, usage=usage, progress=progress, label=label)
+            data = llm_json(prompt, max_output_tokens=3600, usage=usage, progress=progress, label=label)
             progress.set(stage=f"{label} · memvalidasi dan menyimpan", indeterminate=False)
             progress.set_fraction(0.95)
             if not isinstance(data, dict):
                 raise RuntimeError("Format ekstraksi AI tidak valid.")
             title = safe_string(data.get("title")) or os.path.splitext(filename)[0]
             record_id = digest[:16]
+            # Verifikasi terhadap teks PDF utuh (per halaman): kutipan AI harus benar-benar ada.
+            page_norms = [(n, match_norm(t)) for n, t in pdf_info["page_texts"]]
+            full_norm = "".join(p for _, p in page_norms)
+            quotes = []
+            for q in (data.get("evidence_quotes") if isinstance(data.get("evidence_quotes"), list) else [])[:6]:
+                if not isinstance(q, dict) or not safe_string(q.get("quote")):
+                    continue
+                ok, found_page = verify_quote(q.get("quote"), page_norms, full_norm)
+                quotes.append({
+                    "claim": safe_string(q.get("claim"))[:400],
+                    "quote": safe_string(q.get("quote"))[:400],
+                    "page": found_page or q.get("page"),  # halaman hasil pencocokan lebih tepercaya daripada tebakan AI
+                    "verified": ok,
+                })
+            design = normalise_research_design(data.get("research_design"), page_norms, full_norm)
+            design = apply_evidence_gates(design)
+            design = apply_self_reference_rules(design, pdf_info["page_texts"], page_norms, full_norm)
             record = {
                 "id": record_id,
                 "hash": digest,
@@ -1001,6 +1738,10 @@ def analyze_pdfs():
                 "uploaded_at": datetime.now(timezone.utc).isoformat(),
                 "pages": pages,
                 "text_chars": len(text),
+                "text_chars_original": pdf_info["chars_original"],
+                "text_chars_body": pdf_info["chars_body"],
+                "text_truncated": pdf_info["truncated"],
+                "references_removed": pdf_info["references_removed"],
                 "title": title,
                 "authors": normalise_list(data.get("authors"), 20),
                 "year": safe_string(data.get("year"), "")[:20],
@@ -1010,6 +1751,7 @@ def analyze_pdfs():
                 "research_questions": normalise_list(data.get("research_questions"), 12),
                 "methods": safe_string(data.get("methods"))[:3000],
                 "context": safe_string(data.get("context"))[:2000],
+                "research_design": design,
                 "variables": normalise_list(data.get("variables"), 20),
                 "findings": normalise_list(data.get("findings"), 15),
                 "limitations": normalise_list(data.get("limitations"), 10),
@@ -1017,14 +1759,15 @@ def analyze_pdfs():
                 "topic_tags": normalise_list(data.get("topic_tags"), 12),
                 "concepts": data.get("concepts", []) if isinstance(data.get("concepts"), list) else [],
                 "relationships": data.get("relationships", []) if isinstance(data.get("relationships"), list) else [],
-                "evidence_quotes": data.get("evidence_quotes", []) if isinstance(data.get("evidence_quotes"), list) else [],
+                "evidence_quotes": quotes,
+                "evidence_quality": {"quotes_total": len(quotes), "quotes_verified": sum(1 for q in quotes if q["verified"])},
                 "screening_suggestion": data.get("screening_suggestion", {"decision": "review", "reason": "Perlu diverifikasi manual."}),
                 "screening_decision": "pending",
                 "eligibility_decision": "pending",
                 "source_name": source_name or "Upload manual",
                 "search_query": search_query,
                 "search_date": search_date,
-                "analysis_version": 1,
+                "analysis_version": ANALYSIS_VERSION,
                 "extraction_status": "ok",
             }
             decision = record["screening_suggestion"].get("decision", "review") if isinstance(record["screening_suggestion"], dict) else "review"
@@ -1181,8 +1924,8 @@ def synthesize():
         progress.set(current=step)
         try:
             taxonomy_response = llm_json(
-                taxonomy_only_prompt(catalog, summaries, result.get("main_themes", []), research_question),
-                max_output_tokens=2300,
+                taxonomy_only_prompt(taxonomy_catalog(compact), summaries, result.get("main_themes", []), research_question),
+                max_output_tokens=3400,
                 usage=usage,
                 progress=progress,
                 label="Taksonomi",
@@ -1190,7 +1933,10 @@ def synthesize():
             taxonomy = taxonomy_response.get("taxonomy") if isinstance(taxonomy_response, dict) else None
             if not taxonomy_has_content(taxonomy):
                 raise RuntimeError("Model mengembalikan struktur taxonomy kosong atau tidak lengkap.")
-            result["taxonomy"] = filter_references(taxonomy, valid_article_ids)
+            taxonomy = filter_references(taxonomy, valid_article_ids)
+            taxonomy, coverage = finalize_hierarchy(taxonomy, valid_article_ids)
+            result["taxonomy"] = taxonomy
+            result["taxonomy_coverage"] = coverage
             result.pop("taxonomy_error", None)
             result["taxonomy_status"] = "ok"
         except Exception as taxonomy_exc:

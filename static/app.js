@@ -3,7 +3,7 @@
   // JANGAN diganti: ini kunci localStorage proyek. Mengganti nama membuat proyek yang sudah tersimpan di browser "hilang".
   const STORE_KEY = 'litreview_studio_project_v1';
   const EMPTY_USAGE = { calls: 0, prompt_tokens: 0, cache_hit_tokens: 0, completion_tokens: 0, cost_usd: 0, usd_to_idr: 18000 };
-  const DEFAULT_STATE = { articles: [], identifiedTotal: 0, duplicateCount: 0, synthesis: null, meta: {}, usage: {...EMPTY_USAGE} };
+  const DEFAULT_STATE = { articles: [], identifiedTotal: 0, duplicateCount: 0, synthesis: null, meta: {}, usage: {...EMPTY_USAGE}, designUi: {topic: '', scope: 'notexcluded'} };
   let state = loadState();
   let activeTaxonomy = 'hierarchical';
   let activeArticleDetail = null;
@@ -329,12 +329,13 @@
     if (!target || !$('#' + target)) return;
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
-    const labels = {overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Taxonomy', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
+    const labels = {overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Taxonomy', design:'Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
     $('#breadcrumb-current').textContent = labels[target] || target;
     window.scrollTo({top:0, behavior:'smooth'});
     if (target === 'articles') renderArticles();
     if (target === 'prisma') renderPrisma();
     if (target === 'taxonomy') renderTaxonomy();
+    if (target === 'design') renderDesign();
     if (target === 'cooccurrence') renderCooccurrence();
     if (target === 'system-map') renderSystemMap();
     if (target === 'synthesis') renderSynthesis();
@@ -417,7 +418,15 @@
   function renderArticleDetail(id) {
     const a = findArticle(id); if (!a) return;
     activeArticleDetail = id;
-    const quotes = list(a.evidence_quotes).map(q => `<li><strong>${esc(q.claim || 'Klaim')}</strong><br>“${esc(q.quote || '')}” ${q.page ? `<span class="article-meta">(hal. ${esc(q.page)})</span>` : ''}</li>`).join('');
+    const quotes = list(a.evidence_quotes).map(q => {
+      const badge = q.verified === true ? ' <span class="badge-stated">✓ ditemukan di teks PDF</span>' : (q.verified === false ? ' <span class="badge-bad">⚠ tidak ditemukan di teks PDF: verifikasi manual</span>' : '');
+      return `<li><strong>${esc(q.claim || 'Klaim')}</strong><br>“${esc(q.quote || '')}” ${q.page ? `<span class="article-meta">(hal. ${esc(q.page)})</span>` : ''}${badge}</li>`;
+    }).join('');
+    const designBlock = renderResearchDesignBlock(a);
+    const skipped = (a.text_chars_body || 0) - (a.text_chars || 0);
+    const truncNote = a.text_truncated ? (a.text_chars_body
+      ? `\n\nTeks dipotong: isi artikel di luar daftar pustaka ${esc(a.text_chars_body)} karakter, ${esc(a.text_chars)} dikirim ke AI. Sekitar ${esc(skipped)} karakter (${esc(Math.round(100 * skipped / a.text_chars_body))}%) di bagian tengah dilewati, jadi temuan dari bagian itu mungkin tidak tertangkap. Naikkan MAX_TEXT_CHARS di .env bila perlu (batas keras 200000).`
+      : `\n\nTeks dipotong: ${esc(a.text_chars)} dari ${esc(a.text_chars_original)} karakter dikirim ke AI (angka ini masih termasuk daftar pustaka; bagian tengah isi artikel dilewati). Unggah ulang untuk mendapat angka yang lebih akurat.`) : '';
     $('#article-detail').innerHTML = `<button class="icon-button detail-close" id="close-detail" aria-label="Tutup detail">×</button><h2 class="detail-title">${esc(a.title)}</h2><div class="detail-meta">${esc(list(a.authors).join(', ') || 'Penulis tidak terdeteksi')} · ${esc(a.year || 'Tahun tidak terdeteksi')} · ${esc(a.pages || '?')} halaman · ${esc(a.filename || '')}</div><div class="detail-grid">
       <div class="detail-block"><h4>ABSTRACT / TUJUAN</h4><p>${escapeWithBreaks(a.abstract || a.objective || 'Tidak diekstrak.')}</p></div>
       <div class="detail-block"><h4>METODE & KONTEKS</h4><p>${escapeWithBreaks(a.methods || 'Metode tidak terdeteksi')}\n\nKonteks: ${escapeWithBreaks(a.context || 'Tidak tersedia')}</p></div>
@@ -425,8 +434,9 @@
       <div class="detail-block"><h4>VARIABEL / TOPIK</h4><p>${esc([...list(a.variables), ...list(a.topic_tags)].join(' · ') || 'Tidak terdeteksi')}</p></div>
       <div class="detail-block"><h4>LIMITASI</h4><ul>${list(a.limitations).length ? list(a.limitations).map(x=>`<li>${esc(x)}</li>`).join('') : '<li>Tidak dinyatakan / tidak terdeteksi.</li>'}</ul></div>
       <div class="detail-block"><h4>REKOMENDASI SCREENING</h4><p>${esc((a.screening_suggestion || {}).decision || 'review').toUpperCase()} — ${esc((a.screening_suggestion || {}).reason || 'Perlu verifikasi manual.')}</p></div>
+      ${designBlock}
       ${quotes ? `<div class="detail-block" style="grid-column:1/-1"><h4>KUTIPAN BUKTI YANG DIEKSTRAK</h4><ul>${quotes}</ul></div>` : ''}
-      <div class="detail-block" style="grid-column:1/-1"><h4>CATATAN</h4><p>Hasil ekstraksi perlu diverifikasi dengan artikel sumber sebelum dipakai sebagai kutipan atau bukti final. File PDF asli tetap disimpan lokal dan JSON terstruktur tersedia di folder data/json.</p></div>
+      <div class="detail-block" style="grid-column:1/-1"><h4>CATATAN</h4><p>Hasil ekstraksi perlu diverifikasi dengan artikel sumber sebelum dipakai sebagai kutipan atau bukti final. File PDF asli tetap disimpan lokal dan JSON terstruktur tersedia di folder data/json.${truncNote}</p></div>
       </div>`;
     $('#article-detail').classList.remove('hidden');
     $('#article-detail').scrollIntoView({behavior:'smooth',block:'start'});
@@ -491,17 +501,19 @@
     const index = Object.fromEntries(ids.map((id,i)=>[id,i]));
     const links = (edges || []).map(e=>({a:index[String(e.from || e.source || e.parent_id)], b:index[String(e.to || e.target || e.id)]})).filter(e=>Number.isInteger(e.a)&&Number.isInteger(e.b)&&e.a!==e.b);
     if (!links.length && !poly) nodes.forEach((n,i)=>{const pid=String(n.parent_id || (root && root.id) || ''); if (index[pid]!==undefined) links.push({a:index[pid],b:index[String(n.id || `node-${i+1}`)]});});
-    const w=900, h=Math.max(250, Math.ceil(all.length/4)*125+70), pos=[];
+    const w=900, pos=[]; let h=Math.max(250, Math.ceil(all.length/4)*125+70), bw=170;
     if (poly) {
       all.forEach((n,i)=>{const angle=(2*Math.PI*i/all.length)-Math.PI/2;pos.push({x:w/2+Math.cos(angle)*Math.min(310,all.length*28),y:h/2+Math.sin(angle)*Math.min(115,all.length*15)});});
     } else {
       const depth={}; depth[0]=0;
       let changed=true; for(let pass=0;pass<all.length&&changed;pass++){changed=false;links.forEach(e=>{if(depth[e.a]!==undefined&&depth[e.b]===undefined){depth[e.b]=depth[e.a]+1;changed=true;}});}
+      const dv=all.map((_,j)=>depth[j]||0); const perLevel=dv.reduce((m,d)=>(m[d]=(m[d]||0)+1,m),{});
+      h=Math.max(250,(Math.max(...dv)+1)*105+30); bw=Math.max(84,Math.min(170,Math.floor(w/Math.max(...Object.values(perLevel)))-10));
       all.forEach((n,i)=>{const d=depth[i]||0;const same=all.map((_,j)=>j).filter(j=>(depth[j]||0)===d);const rank=same.indexOf(i);pos.push({x:(rank+1)*w/(same.length+1),y:45+d*105});});
     }
     let svg=`<svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Diagram taxonomy"><defs><marker id="tax-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8b8b82"/></marker></defs>`;
     links.forEach(e=>{const a=pos[e.a],b=pos[e.b];svg+=`<path d="M${a.x} ${a.y+20} L${b.x} ${b.y-20}" stroke="#8b8b82" stroke-width="1.5" fill="none" marker-end="url(#tax-arrow)"/>`;});
-    all.forEach((n,i)=>{const q=pos[i],name=n.name||n.label||n.id||'Konsep';svg+=`<g><rect x="${q.x-85}" y="${q.y-22}" width="170" height="44" fill="${i===0?'#f3f1e7':'#141413'}" stroke="${i===0?'#f3f1e7':'#8b8b82'}"/><text x="${q.x}" y="${q.y+4}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10" font-weight="700" fill="${i===0?'#0d0d0c':'#d6d4cb'}">${esc(String(name).slice(0,25))}</text></g>`;});
+    all.forEach((n,i)=>{const q=pos[i],name=n.name||n.label||n.id||'Konsep';svg+=`<g><rect x="${q.x-bw/2}" y="${q.y-22}" width="${bw}" height="44" fill="${i===0?'#f3f1e7':'#141413'}" stroke="${i===0?'#f3f1e7':'#8b8b82'}"/><text x="${q.x}" y="${q.y+4}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10" font-weight="700" fill="${i===0?'#0d0d0c':'#d6d4cb'}">${esc(String(name).slice(0,Math.floor(bw/6.4)))}</text></g>`;});
     return svg+'</svg>';
   }
   function renderCooccurrence() {
@@ -522,6 +534,171 @@
     canvas.innerHTML=svg+'</svg>';meta.textContent=`${docs.length} artikel · ${top.length} istilah · ${edges.length} hubungan co-occurrence`;
   }
 
+
+  // ---------------------------------------------------------------- Desain Riset (research onion)
+  let codebook = null, designResult = null, designReq = 0, designRefs = {};
+  // Versi analisis terbaru dari server (sumber tunggal: ANALYSIS_VERSION di app.py); 3 = cadangan bila codebook belum termuat.
+  function currentAnalysisVersion() { return (codebook && codebook.analysis_version) || 3; }
+  async function loadCodebook() {
+    if (codebook) return codebook;
+    try { codebook = await api('/api/codebook'); } catch (_) { codebook = {fields: {}}; }
+    return codebook;
+  }
+  function cbLabel(field, key) {
+    const spec = ((codebook || {}).fields || {})[field];
+    return spec && spec.values && spec.values[key] ? spec.values[key].label : key;
+  }
+  function designScopeArticles() {
+    const scope = (state.designUi || {}).scope || 'notexcluded';
+    return state.articles.filter(a => a.extraction_status !== 'failed' && (
+      scope === 'all' ? true
+      : scope === 'included' ? (a.screening_decision === 'include' && a.eligibility_decision === 'include')
+      : (a.screening_decision !== 'exclude' && a.eligibility_decision !== 'exclude')));
+  }
+  // 'dinyatakan' hanya jujur untuk label eksplisit (kodenya memeriksa bahwa kutipan memuat istilahnya). Untuk label lain,
+  // kode hanya memastikan kutipan ADA di PDF, jadi tulisannya 'didukung kutipan'.
+  function isExplicitLabel(field, code) { return (((codebook || {}).explicit_terms || {})[field] || []).includes(code); }
+  function basisBadge(item, field, code) {
+    if (!item || item.basis === 'not_stated' || !item.basis) return '<span class="badge-none">tidak dinyatakan</span>';
+    if (item.basis === 'stated') return isExplicitLabel(field, code)
+      ? '<span class="badge-stated" title="Kutipan terverifikasi di PDF dan memuat istilah label ini">dinyatakan ✓</span>'
+      : '<span class="badge-stated" title="Kutipan terverifikasi ada di PDF dan relevan, tetapi belum tentu penulis menyebut label ini secara harfiah">didukung kutipan ✓</span>';
+    return '<span class="badge-inferred">disimpulkan AI</span>';
+  }
+  function renderResearchDesignBlock(a) {
+    const d = a.research_design;
+    if (!d) return `<div class="detail-block" style="grid-column:1/-1"><h4>DESAIN RISET (RESEARCH ONION)</h4><p>Artikel ini dianalisis dengan versi lama (v${esc(a.analysis_version || 1)}) sehingga belum punya label desain riset. Unggah ulang PDF yang sama untuk menganalisis ulang; keputusan screening Anda dipertahankan.</p></div>`;
+    const outdated = (a.analysis_version || 1) < currentAnalysisVersion() ? `<p class="citation-note">Dianalisis dengan versi v${esc(a.analysis_version || 1)}; versi terbaru v${esc(currentAnalysisVersion())} memakai aturan label yang lebih ketat. Unggah ulang PDF yang sama untuk memperbarui (keputusan screening dipertahankan).</p>` : '';
+    const rows = Object.keys(((codebook || {}).fields) || {}).length ? Object.keys(codebook.fields) : ['philosophy','approach','methodological_choice','strategy','time_horizon','data_source','analysis'];
+    const body = rows.map(field => {
+      const item = d[field] || {};
+      if (Array.isArray(item.items) && item.items.length) {
+        const lbl = ((codebook || {}).fields || {})[field]?.label || field;
+        const lines = item.items.map(e => `<div>${esc(cbLabel(field, e.code))} ${basisBadge(e, field, e.code)}${e.source === 'rule' ? ` <span class="badge-none" title="Ditambahkan oleh aturan deterministik karena penulis menyebutnya sendiri; bukan usulan AI">via aturan${e.page ? ', hal. ' + esc(e.page) : ''}</span>` : ''}${e.evidence ? `<small>“${esc(e.evidence)}” ${e.evidence_verified ? '<span class="badge-stated">✓ ada di teks</span>' : '<span class="badge-bad">⚠ tidak ditemukan di teks</span>'}</small>` : ''}</div>`).join('');
+        return `<div class="rd-row"><div>${esc(lbl)}</div><div>${lines}</div></div>`;
+      }
+      const vals = list(Array.isArray(item.value) ? item.value : (item.value && item.value !== 'not_stated' ? [item.value] : []));
+      const label = ((codebook || {}).fields || {})[field]?.label || field;
+      const evidence = item.evidence ? `<small>“${esc(item.evidence)}” ${item.evidence_verified ? '<span class="badge-stated">✓ ada di teks</span>' : '<span class="badge-bad">⚠ tidak ditemukan di teks</span>'}</small>` : '';
+      return `<div class="rd-row"><div>${esc(label)}</div><div>${vals.length ? vals.map(v => esc(cbLabel(field, v))).join(', ') : '<span class="badge-none">—</span>'} ${basisBadge(item, field, item.value)}${evidence}</div></div>`;
+    }).join('');
+    const tech = list(d.techniques).length ? `<div class="rd-row"><div>Teknik / metode</div><div>${list(d.techniques).map(esc).join(' · ')}</div></div>` : '';
+    const warn = list(d.warnings).length ? `<p class="citation-note">Catatan validasi: ${list(d.warnings).map(esc).join(' | ')}</p>` : '';
+    return `<div class="detail-block" style="grid-column:1/-1"><h4>DESAIN RISET (RESEARCH ONION) · codebook ${esc(d.codebook_version || '')}</h4>${body}${tech}${warn}${outdated}<p class="citation-note">“disimpulkan AI” berarti tidak dinyatakan eksplisit oleh penulis: periksa sebelum dipakai sebagai fakta. “didukung kutipan ✓” berarti kalimat itu ada di PDF dan relevan, bukan jaminan penulis menyebut label itu secara harfiah; hanya “dinyatakan ✓” (label eksplisit seperti Case study) yang memeriksa istilahnya.</p></div>`;
+  }
+
+  // Clipboard API hanya jalan di konteks aman (HTTPS atau localhost). Di http://IP-lokal atau 0.0.0.0 ia undefined,
+  // jadi ada cadangan lewat textarea + execCommand, lalu cadangan terakhir: tampilkan teks untuk disalin manual.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch (_) { /* lanjut ke cadangan */ }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+  function showCopyFallback(text) {
+    const box = $('#design-notices');
+    box.insertAdjacentHTML('beforeend', `<textarea id="design-copy-box" class="design-copy-box" readonly rows="14">${esc(text)}</textarea>`);
+    const ta = $('#design-copy-box'); ta.focus(); ta.select();
+  }
+  function refList(ids) {
+    const nums = list(ids).map(id => designRefs[id]).filter(Boolean).sort((x, y) => x - y);
+    return nums.length ? ` [${nums.join(', ')}]` : '';
+  }
+  function dtNode(node, isRoot = false) {
+    const kids = list(node.children);
+    const emptyValues = kids.filter(k => k.kind === 'value' && k.count === 0);
+    const shown = kids.filter(k => !(k.kind === 'value' && k.count === 0));
+    const TECH_CAP = 15;
+    const techs = shown.filter(k => k.kind === 'technique');
+    const rest = shown.filter(k => k.kind !== 'technique');
+    const techShown = techs.slice(0, TECH_CAP);
+    const cls = node.kind === 'branch' ? 'dt-branch' : (node.count === 0 && node.kind === 'group' ? 'dt-empty' : '');
+    const inferred = node.inferred_count ? `<span class="dt-infer" title="Jumlah artikel yang label ini hanya disimpulkan AI, tanpa kutipan pendukung">${node.inferred_count} disimpulkan</span>` : '';
+    const chips = (node.kind === 'value' || node.kind === 'technique') && node.count ? `<span class="dt-chips">${citationChips(node.article_ids)}</span>` : '';
+    const inner = [
+      ...rest.map(k => dtNode(k)),
+      ...techShown.map(k => dtNode(k)),
+      techs.length > TECH_CAP ? `<li class="dt-item dt-empty">+ ${techs.length - TECH_CAP} teknik lain (lihat JSON)</li>` : '',
+      emptyValues.length ? `<li class="dt-item dt-empty">Belum ada artikel: ${emptyValues.map(k => esc(k.name)).join(', ')}</li>` : '',
+    ].join('');
+    const head = `<span class="dt-name">${esc(node.name)}</span><span class="dt-count">${node.count}</span>${inferred}${node.definition ? `<span class="dt-def">${esc(node.definition)}</span>` : ''}${node.note ? `<span class="dt-note">${esc(node.note)}</span>` : ''}${chips}`;
+    return `<li class="dt-item ${cls}">${head}${inner ? `<ul class="dt-list">${inner}</ul>` : ''}</li>`;
+  }
+  function dtText(node, prefix = '', last = true, isRoot = true) {
+    const kids = list(node.children).filter(k => !(k.kind === 'value' && k.count === 0));
+    const techs = kids.filter(k => k.kind === 'technique');
+    const visible = [...kids.filter(k => k.kind !== 'technique'), ...techs.slice(0, 15)];
+    const label = `${node.name} (${node.count})${(node.kind === 'value' || node.kind === 'technique') ? refList(node.article_ids) : ''}`;
+    let out = isRoot ? `${label}\n` : `${prefix}${last ? '└─ ' : '├─ '}${label}\n`;
+    const childPrefix = isRoot ? '' : prefix + (last ? '   ' : '│  ');
+    visible.forEach((k, i) => { out += dtText(k, childPrefix, i === visible.length - 1, false); });
+    return out;
+  }
+  function paintDesign(res, arts) {
+    designRefs = {}; arts.forEach((a, i) => { designRefs[a.id] = i + 1; });
+    const notices = [];
+    if (res.missing_ids.length) {
+      const titles = res.missing_ids.map(id => esc((findArticle(id) || {}).title || id)).slice(0, 5).join('; ');
+      notices.push(`<div class="design-notice">${res.missing_ids.length} dari ${res.n_articles} artikel dianalisis dengan versi lama dan belum punya label desain riset (${titles}${res.missing_ids.length > 5 ? '; …' : ''}). Unggah ulang PDF-nya di tab Ikhtisar untuk analisis ulang; keputusan screening dipertahankan. Analisis ulang memakai token AI.</div>`);
+    }
+    if (res.n_with_design) {
+      notices.push(`<div class="design-notice ok">${res.n_with_design} artikel dihitung. Label bertanda “disimpulkan” adalah tebakan AI dari cara studi dilakukan, bukan pernyataan penulis; baca ringkasan di bagian bawah halaman dan periksa artikel kuncinya.</div>`);
+    }
+    $('#design-notices').innerHTML = notices.join('');
+    if (!res.n_with_design) {
+      $('#design-tree').innerHTML = '<div class="empty-state">Belum ada artikel dengan label desain riset pada cakupan ini.</div>';
+      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden');
+      return;
+    }
+    const refFooter = arts.filter(a => res.tree.article_ids.includes(a.id)).map(a => `<li>[${designRefs[a.id]}] ${esc(a.title)} (${esc(a.year || 'n.d.')})</li>`).join('');
+    $('#design-tree').innerHTML = `<div class="synth-eyebrow">TAKSONOMI / ${esc(res.n_with_design)} ARTIKEL / CODEBOOK ${esc(res.codebook_version)}</div><div class="dt-root">${esc(res.tree.name)}</div><ul class="dt-list dt-root-list">${list(res.tree.children).map(k => dtNode(k)).join('')}</ul><details style="margin-top:14px"><summary class="taxonomy-help">Daftar referensi ([n] pada outline teks)</summary><ol style="list-style:none;padding:0;font-size:12px">${refFooter}</ol></details>`;
+    const m = res.matrix;
+    $('#design-matrix').classList.remove('hidden');
+    $('#design-matrix').innerHTML = `<div class="synth-eyebrow">MATRIKS METODOLOGI × STRATEGI</div><h2>Sel kosong = kandidat research gap</h2><p class="taxonomy-help">Angka = jumlah artikel. Sel bergaris kosong belum punya artikel di korpus ini. Itu bisa berarti gap riset, atau hanya keterbatasan pencarian Anda.</p><div class="matrix-wrap"><table class="design-matrix-table"><thead><tr><th></th>${m.columns.map(c => `<th>${esc(c.label)}</th>`).join('')}<th>Total</th></tr></thead><tbody>${m.rows.map(r => `<tr><td>${esc(r.name)}</td>${m.columns.map(c => { const n = list(r.cells[c.key]).length; return `<td class="${n ? '' : 'zero'}" title="${esc(list(r.cells[c.key]).map(id => (findArticle(id) || {}).title || id).join('; '))}">${n}</td>`; }).join('')}<td>${r.total}</td></tr>`).join('')}</tbody></table></div>`;
+    $('#design-basis').classList.remove('hidden');
+    $('#design-basis').innerHTML = `<div class="synth-eyebrow">KEPERCAYAAN LABEL</div><h2>Didukung kutipan vs disimpulkan AI</h2><p class="taxonomy-help">Hijau = didukung kutipan yang terverifikasi di teks PDF (untuk label eksplisit seperti Case study, itu berarti penulis menyebutnya sendiri). Kuning = disimpulkan. Abu-abu = tidak dinyatakan.</p>${Object.entries(res.basis_summary).map(([k, v]) => { const t = (v.stated + v.inferred + v.not_stated) || 1; return `<div class="basis-row"><span>${esc(v.label)}</span><span class="basis-bar"><i class="b-stated" style="width:${v.stated / t * 100}%"></i><i class="b-inferred" style="width:${v.inferred / t * 100}%"></i><i class="b-none" style="width:${v.not_stated / t * 100}%"></i></span><span>${v.stated} / ${v.inferred} / ${v.not_stated}</span></div>`; }).join('')}`;
+  }
+  async function renderDesign() {
+    const box = $('#design-tree'); if (!box) return;
+    state.designUi = {topic: '', scope: 'notexcluded', ...(state.designUi || {})};
+    const topicInput = $('#design-topic');
+    if (document.activeElement !== topicInput) topicInput.value = state.designUi.topic;
+    $('#design-scope').value = state.designUi.scope;
+    const arts = designScopeArticles();
+    if (!arts.length) {
+      $('#design-notices').innerHTML = '';
+      box.innerHTML = '<div class="empty-state">Belum ada artikel pada cakupan ini. Unggah PDF di tab Ikhtisar, atau ubah cakupan di atas.</div>';
+      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden');
+      return;
+    }
+    const mine = ++designReq;
+    try {
+      await loadCodebook();
+      const res = await api('/api/design-taxonomy', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({articles: arts, topic: state.designUi.topic})});
+      if (mine !== designReq) return;
+      designResult = {res, arts};
+      paintDesign(res, arts);
+    } catch (e) {
+      if (mine === designReq) box.innerHTML = `<div class="empty-state">${esc(e.message || 'Gagal menyusun taksonomi desain riset.')}</div>`;
+    }
+  }
+  function renderTopicOutline(root, nodes) {
+    const kids = {}; nodes.forEach(n => { (kids[String(n.parent_id || root.id)] = kids[String(n.parent_id || root.id)] || []).push(n); });
+    const walk = (parentId) => (kids[String(parentId)] || []).map(n => {
+      const sub = walk(n.id);
+      const leaf = !sub;
+      return `<li class="dt-item"><span class="dt-name">${esc(n.name || 'Node')}</span><span class="dt-count">${list(n.article_ids).length}</span>${n.description ? `<span class="dt-def">${esc(n.description)}</span>` : ''}${leaf && list(n.article_ids).length ? `<span class="dt-chips">${citationChips(n.article_ids)}</span>` : ''}${sub ? `<ul class="dt-list">${sub}</ul>` : ''}</li>`;
+    }).join('');
+    const body = walk(root.id || 'root');
+    return `<div class="dt-root">${esc(root.name || 'Konsep utama')}</div>${body ? `<ul class="dt-list dt-root-list">${body}</ul>` : ''}`;
+  }
+
   function renderTaxonomy() {
     const s = state.synthesis;
     const box = $('#taxonomy-content');
@@ -533,7 +710,10 @@
     $$('.taxonomy-tab').forEach(b => b.classList.toggle('active', b.dataset.taxonomy === activeTaxonomy));
     if (activeTaxonomy === 'hierarchical') {
       const h = s.taxonomy.hierarchical || {}; const root = h.root || {id:'root',name:'Konsep utama'}; const nodes = list(h.nodes);
-      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Struktur dari konsep umum ke subkategori</h2><p class="taxonomy-help">Setiap konsep memiliki satu jalur induk utama. Periksa kembali hierarki yang diusulkan.</p>${nodes.length ? renderHierarchySvg(root,nodes,[]) : '<div class="empty-state">Belum ada struktur hierarki. Jalankan ulang sintesis untuk menghasilkan node hierarkis.</div>'}`;
+      const levels = list(h.levels), cov = s.taxonomy_coverage;
+      const principle = levels.length ? `<p class="taxonomy-help"><strong>Prinsip pengelompokan:</strong> ${levels.map(l=>`level ${esc(l.level)}: ${esc(l.principle)}`).join(' · ')}</p>` : '';
+      const covLine = cov ? `<p class="taxonomy-help">Cakupan: ${esc(cov.covered)}/${esc(cov.total)} artikel punya tempat di hierarki${list(cov.uncovered_ids).length ? ` · belum terpetakan: ${list(cov.uncovered_ids).map(id=>esc((findArticle(id)||{}).title||id)).join('; ')}` : ''}${cov.parent_fixes ? ` · ${esc(cov.parent_fixes)} relasi induk diperbaiki otomatis` : ''}.</p>` : '';
+      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Taksonomi topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? renderHierarchySvg(root,nodes,[]) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada struktur taxonomy yang dihasilkan.</div>'}`;
     } else if (activeTaxonomy === 'faceted') {
       const f=s.taxonomy.faceted||{}; const facets=list(f.facets);
       box.innerHTML = `<div class="synth-eyebrow">FACETED TAXONOMY</div><h2 class="taxonomy-title">Klasifikasi berdasarkan beberapa facet</h2><p class="taxonomy-help">Setiap kolom menunjukkan dimensi atribut yang berbeda untuk mendeskripsikan studi atau konsep.</p>${facets.length ? `<div class="facet-diagram">${facets.map((facet,i)=>`<div class="facet-column"><div class="facet-head">${esc(facet.name||'Facet '+(i+1))}</div>${list(facet.values).map(v=>`<div class="facet-value"><strong>${esc(v.name||'Kategori')}</strong><small>${esc(v.description||'')}</small><span>${list(v.article_ids).length} artikel</span></div>`).join('')}</div>`).join('')}</div>` : '<div class="empty-state">Belum ada facet yang dihasilkan. Jalankan ulang sintesis untuk membuat klasifikasi multi-dimensi.</div>'}`;
@@ -631,7 +811,9 @@
     // Cek duplikat di browser sebelum upload: PDF yang hash-nya sudah ada di proyek tidak dikirim ke AI (hemat biaya).
     const skipped = [];
     if (window.crypto && crypto.subtle) {
-      const known = new Set(state.articles.map(a => a.hash).filter(Boolean));
+      // Hanya artikel yang sudah dianalisis dengan versi analisis TERBARU yang dianggap 'sudah ada'. Artikel versi lama boleh diunggah ulang untuk dianalisis ulang.
+      await loadCodebook();
+      const known = new Set(state.articles.filter(a => (a.analysis_version || 1) >= currentAnalysisVersion()).map(a => a.hash).filter(Boolean));
       const fresh = [];
       for (const f of files) {
         let hash = null;
@@ -673,16 +855,23 @@
       const response = await api('/api/analyze', {method:'POST', body:data});
       addUsage(response.usage);
       const newArticles = list(response.articles);
-      let added=0, duplicates=0;
+      let added=0, duplicates=0, reanalysed=0;
       for (const article of newArticles) {
+        const idx = state.articles.findIndex(a=>a.hash===article.hash || a.id===article.id);
+        if (idx >= 0 && (state.articles[idx].analysis_version || 1) < (article.analysis_version || 1)) {
+          // Analisis ulang: ganti hasil ekstraksi, pertahankan keputusan manual pengguna, jangan hitung sebagai record baru.
+          article.screening_decision = state.articles[idx].screening_decision;
+          article.eligibility_decision = state.articles[idx].eligibility_decision;
+          state.articles[idx] = article; reanalysed++; continue;
+        }
         state.identifiedTotal = (state.identifiedTotal || 0) + 1;
-        const already = state.articles.some(a=>a.hash===article.hash || a.id===article.id);
-        if (already) { state.duplicateCount = (state.duplicateCount || 0)+1; duplicates++; continue; }
+        if (idx >= 0) { state.duplicateCount = (state.duplicateCount || 0)+1; duplicates++; continue; }
         state.articles.push(article); added++;
       }
-      if (added || duplicates) state.synthesis = null;
+      if (added || duplicates || reanalysed) state.synthesis = null;
       saveState(); renderAll();
       let message = `${added} artikel berhasil dianalisis.`;
+      if (reanalysed) message += ` ${reanalysed} artikel lama dianalisis ulang (keputusan screening dipertahankan).`;
       if (duplicates) message += ` ${duplicates} duplikat dikenali dan tidak ditambahkan lagi.`;
       if (skipped.length) message += ` ${skipped.length} file dilewati karena sudah ada di proyek (tanpa biaya AI).`;
       if (list(response.errors).length) message += ' Beberapa file tidak berhasil dianalisis.';
@@ -773,6 +962,10 @@
     $('#project-form').addEventListener('submit',e=>{e.preventDefault();saveMetaFromForm(true);});
     $('#upload-form').addEventListener('submit',handleUpload);
     $('#run-synthesis').addEventListener('click',handleSynthesis);
+    $('#design-topic').addEventListener('input',e=>{state.designUi={...(state.designUi||{}),topic:e.target.value};saveState();clearTimeout(window.__designTimer);window.__designTimer=setTimeout(renderDesign,350);});
+    $('#design-scope').addEventListener('change',e=>{state.designUi={...(state.designUi||{}),scope:e.target.value};saveState();renderDesign();});
+    $('#design-copy').addEventListener('click',async()=>{if(!designResult){return;}const t=dtText(designResult.res.tree)+'\nReferensi:\n'+designResult.arts.filter(a=>designResult.res.tree.article_ids.includes(a.id)).map(a=>`[${designRefs[a.id]}] ${a.title} (${a.year||'n.d.'})`).join('\n');if(await copyText(t)){toast('Outline taksonomi disalin ke clipboard.','success');return;}toast('Browser memblokir clipboard. Teks ditampilkan di bawah: pilih semua lalu salin manual (Ctrl+C).','error');showCopyFallback(t);});
+    $('#design-download').addEventListener('click',()=>{if(!designResult){return;}const blob=new Blob([JSON.stringify(designResult.res,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='taksonomi-desain-riset.json';link.click();URL.revokeObjectURL(link.href);});
     $('#pdf-files').addEventListener('change',renderSelectedFiles);
     const dz=$('#dropzone');
     ['dragenter','dragover'].forEach(name=>dz.addEventListener(name,e=>{e.preventDefault();dz.classList.add('dragging');}));
@@ -805,7 +998,7 @@
 
   document.addEventListener('DOMContentLoaded',()=>{
     // This script is deferred; DOM is ready by the time it runs in modern browsers.
-    applyMeta(state.meta);attachEvents();renderAll();checkHealth();
+    applyMeta(state.meta);attachEvents();renderAll();checkHealth();loadCodebook();
     if (!state.meta.search_date) { const d=new Date();$('#search-date').value=d.toISOString().slice(0,10); }
   });
 })();

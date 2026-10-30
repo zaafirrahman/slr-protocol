@@ -110,11 +110,17 @@ Form multipart: `pdfs` (banyak), `research_question`, `inclusion`, `exclusion`, 
 
 Per PDF (berurutan, satu request panjang):
 1. Validasi: ukuran ≤ `MAX_FILE_MB`, signature `%PDF`.
-2. `read_pdf()`: PyMuPDF membaca teks per halaman, menyisipkan penanda `[PAGE n]`, berhenti setelah
-   `MAX_TEXT_CHARS`. Teks < 100 karakter dianggap PDF scan (tidak ada OCR) dan dilaporkan sebagai error file.
+2. `read_pdf()`: PyMuPDF membaca SEMUA halaman (batas keras 600.000 karakter) dengan penanda `[PAGE n]`.
+   `strip_references()` membuang daftar pustaka, lalu `trim_text()` memotong ke `MAX_TEXT_CHARS` dengan
+   menyimpan 70% awal + sisanya dari AKHIR dokumen (penanda `[... bagian tengah dipotong ...]`). Dulu hanya
+   bagian awal yang disimpan sehingga limitations dan kesimpulan hilang. Teks < 100 karakter dianggap PDF scan
+   (tidak ada OCR) dan dilaporkan sebagai error file.
 3. `article_prompt()`: instruksi anti-halusinasi, konteks review, teks artikel, dan skema JSON yang diminta.
    Teks PDF diperlakukan sebagai data, bukan instruksi (mitigasi prompt injection).
 4. `llm_json()` mengembalikan dict; hasilnya dinormalisasi (`normalise_list`, `safe_string`, batas panjang).
+   Kutipan bukti diverifikasi terhadap teks PDF per halaman (`verify_quote`, field `verified`; halaman hasil
+   pencocokan menggantikan tebakan AI). `research_design` divalidasi terhadap codebook (`normalise_research_design`):
+   kode di luar codebook dibuang, dan basis `stated` diturunkan ke `inferred` bila kutipan buktinya tidak ada di teks.
 5. Dibentuk **record artikel** (lihat 5.1). `screening_suggestion.decision` diperiksa ∈ {include, exclude, review}.
 6. Opsional: salin PDF/JSON ke `data/` bila saklar `KEEP_SERVER_*` menyala.
 
@@ -133,7 +139,10 @@ Pipeline (semua panggilan lewat `llm_json`, jumlah langkah dihitung di awal untu
 2. **Reduce** (hanya bila ringkasan > `REDUCE_GROUP_SIZE`): gabung per grup berulang-ulang sampai muat satu
    panggilan akhir. Grup berisi 1 ringkasan dilewatkan tanpa AI (`count_reduce_calls` meniru logika ini).
 3. **Final** (`final_synthesis_prompt`): sintesis lintas-batch dengan katalog artikel valid.
-4. **Taksonomi terpisah** (`taxonomy_only_prompt`): panggilan sendiri supaya taksonomi tidak berebut batas
+4. **Taksonomi topik terpisah** (`taxonomy_only_prompt`, dengan `taxonomy_catalog` yang memuat metode, konsep, dan
+   ringkasan desain; hierarki 3 level dengan satu prinsip pengelompokan per level; hasil dirapikan oleh
+   `finalize_hierarchy`: perbaikan id/parent/siklus, roll-up `article_ids`, dan `taxonomy_coverage`).
+   `final_synthesis_prompt` tidak lagi meminta taksonomi. Panggilan sendiri supaya taksonomi tidak berebut batas
    token dengan sintesis. Hasilnya `taxonomy_status` ∈ `ok` | `fallback` | `failed`. Kegagalan taksonomi tidak
    membatalkan sintesis.
 5. `filter_references()` membuang `article_ids` yang tidak ada di korpus (mencegah AI mengarang rujukan).
@@ -166,6 +175,22 @@ dengan baris final (token masuk/keluar, cache, detik, biaya). Retry dicatat seba
 `auth_guard` memakai HTTP Basic Auth bila `APP_PASSWORD` terisi (perbandingan string biasa, bukan constant-time;
 cukup untuk prototype di atas HTTPS).
 
+### 4.5 Taksonomi desain riset (research onion)
+
+`RESEARCH_ONION` di `app.py` adalah codebook (Saunders dkk., 2019): philosophy, approach, methodological_choice,
+strategy, time_horizon, data_source, analysis. Satu sumber kebenaran untuk prompt ekstraksi, validasi, dan taksonomi.
+Kode bertanda `[ekstensi]` (mis. `experiment_modeling_simulation`, `synthetic_simulated`) bukan dari Saunders; ditambahkan
+agar cocok dengan riset pemodelan. Ubah `CODEBOOK_VERSION` bila arti kode berubah.
+
+Prinsip: AI hanya **mengklasifikasikan satu artikel ke kode codebook** (dengan `basis` stated/inferred/not_stated dan
+bukti). Pohon **dihitung kode** oleh `build_design_taxonomy` (group-by), tanpa LLM: `POST /api/design-taxonomy`,
+tab Desain Riset. Cabang: Metodologi (Kuantitatif/Kualitatif/Campuran lalu teknik), Strategi, Teknik & prosedur,
+Fondasi & horizon waktu; plus matriks Metodologi x Strategi (sel kosong = kandidat gap) dan ringkasan
+stated/inferred/not_stated. `GET /api/codebook` memberi label untuk UI.
+
+Artikel lama (`analysis_version` 1) tidak punya `research_design`; UI memberi tahu dan mengizinkan unggah ulang
+(analisis ulang mengganti ekstraksi, keputusan screening dipertahankan).
+
 ## 5. Model data
 
 ### 5.1 Record artikel (hasil `/api/analyze`, disimpan di `state.articles`)
@@ -177,6 +202,9 @@ cukup untuk prototype di atas HTTPS).
 `screening_suggestion{decision,reason}`, `screening_decision` (`pending|include|exclude`), `eligibility_decision`
 (`pending|include|exclude`), `source_name`, `search_query`, `search_date`, `analysis_version`,
 `extraction_status`, `pdf_stored`, `json_stored`.
+Tambahan v2 (`analysis_version` 2): `research_design{codebook_version, <field>{value, basis, evidence,
+evidence_verified}, techniques[], warnings[]}`, `evidence_quotes[].verified`, `evidence_quality{quotes_total,
+quotes_verified}`, `text_chars_original`, `text_truncated`, `references_removed`.
 
 Aturan keputusan (frontend, `handleDecisionChange`): mengubah screening menjadi selain `include` mereset
 `eligibility_decision` ke `pending`; **setiap** perubahan keputusan mengosongkan `state.synthesis`.
@@ -256,7 +284,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Area | Fungsi kunci |
 |---|---|
 | State & penyimpanan | `loadState`, `saveState`, `DEFAULT_STATE`, `STORE_KEY` |
-| Navigasi | `navigate(target)`, tombol `data-target`, 7 tab: overview, articles, prisma, synthesis, taxonomy, cooccurrence, system-map |
+| Navigasi | `navigate(target)`, tombol `data-target`, 8 tab: overview, articles, prisma, synthesis, taxonomy, design, cooccurrence, system-map |
 | Upload | `handleUpload`: validasi → pre-check duplikat (`sha256Hex` via `crypto.subtle`) → FormData + `job_id` → polling → merge artikel |
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
@@ -295,7 +323,11 @@ Python version tidak dipin; bila build gagal pada PyMuPDF di versi Python terbar
 
 ## 10. Verifikasi dan pengujian
 
-Tidak ada test suite. Pemeriksaan yang dipakai selama pengembangan:
+Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (51 pengecekan: normalisasi
+kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
+memakai `data/pdfs` atau `SLR_PDF_DIR`. `tests/fixtures_research_design.json` berisi label buatan tangan (gold standard
+mini, bukan keluaran AI), dua entri sengaja salah untuk menguji pertahanan. Belum ada tes browser otomatis di repo.
+Pemeriksaan lain yang dipakai selama pengembangan:
 
 ```bash
 python -m pyflakes app.py        # harus bersih
@@ -328,9 +360,17 @@ Urut kira-kira berdasarkan dampak:
 6. **`app.run(host="0.0.0.0")`** saat `python app.py`: dapat diakses dari jaringan lokal. Gunakan `APP_PASSWORD`,
    atau ubah host ke `127.0.0.1` bila hanya dipakai lokal.
 7. **Auth sederhana** (Basic Auth, tanpa rate limit/lockout). Wajib HTTPS di produksi.
-8. **Tanpa test otomatis** dan tanpa CI.
+8. **Tes otomatis hanya mencakup logika murni dan alur backend dengan LLM tiruan**; belum ada CI dan belum ada
+   tes browser di repo. Kualitas label AI sendiri (akurasi klasifikasi) belum diukur: perlu audit sampel manual.
 9. Tarif/jadwal peak DeepSeek di-hardcode sebagai bawaan dan bisa kedaluwarsa; libur China tidak dimodelkan.
 10. Warna SVG visualisasi di-hardcode di JavaScript.
+11. **Label research onion banyak yang `inferred`.** Philosophy dan approach jarang dinyatakan penulis; tampilkan apa
+    adanya, jangan disajikan sebagai fakta. Kebenaran label `stated` hanya dijamin bahwa kutipannya ada di teks,
+    bukan bahwa kutipan itu benar-benar mendukung label.
+12. **Teknik digabung berdasarkan string yang sama** (huruf besar/kecil dan tanda baca diabaikan). Sinonim ("LSTM" vs
+    "Long Short-Term Memory") belum digabung: butuh langkah normalisasi konsep dengan persetujuan manusia.
+13. **Taksonomi topik tetap usulan AI**, bukan hasil hitung. Cakupan diukur, tetapi kebenaran pengelompokan tidak.
+14. Pemotongan teks tetap bisa menghilangkan bagian tengah (hasil/diskusi) pada artikel yang sangat panjang.
 
 ## 12. Panduan perubahan cepat
 
@@ -338,6 +378,7 @@ Urut kira-kira berdasarkan dampak:
 |---|---|
 | Menambah/mengubah field ekstraksi artikel | `article_prompt` (skema), pembentukan `record` di `analyze_pdfs`, `compact_article`, lalu `renderArticleDetail` di `app.js` |
 | Mengubah perilaku sintesis | `batch_synthesis_prompt`, `reduce_summaries_prompt`, `final_synthesis_prompt`, `taxonomy_only_prompt`; bentuk keluaran dipakai `renderSynthesis`/`renderTaxonomy`/`renderSystemMap` |
+| Menambah/mengubah nilai research onion | `RESEARCH_ONION` (+ `METHOD_GROUPS`, naikkan `CODEBOOK_VERSION`); prompt, validasi, dan taksonomi mengikuti otomatis |
 | Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py` |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
 | Menambah tab/halaman | `index.html` (tombol `data-target` + `section.page-section`), `navigate`/`renderAll` di `app.js` |

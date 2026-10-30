@@ -23,8 +23,9 @@
         <button class="nav-item" data-target="prisma"><span class="nav-icon">03</span> PRISMA Flow</button>
         <button class="nav-item" data-target="synthesis"><span class="nav-icon">04</span> Review Synthesis</button>
         <button class="nav-item" data-target="taxonomy"><span class="nav-icon">05</span> Taxonomy</button>
-        <button class="nav-item" data-target="cooccurrence"><span class="nav-icon">06</span> Co-occurrence</button>
-        <button class="nav-item" data-target="system-map"><span class="nav-icon">07</span> System Map</button>
+        <button class="nav-item" data-target="design"><span class="nav-icon">06</span> Desain Riset</button>
+        <button class="nav-item" data-target="cooccurrence"><span class="nav-icon">07</span> Co-occurrence</button>
+        <button class="nav-item" data-target="system-map"><span class="nav-icon">08</span> System Map</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="private-card"><span class="private-dot"></span><div><strong>Workspace pribadi</strong><small>Data proyek tersimpan di browser ini</small></div></div>
@@ -129,6 +130,19 @@
           <div class="section-heading page-title-row"><div><p class="eyebrow">KNOWLEDGE ORGANIZATION</p><h1>Taxonomy explorer</h1><p class="page-subtitle">Klasifikasi konseptual yang dihasilkan dari artikel terpilih.</p></div><button class="button button-secondary" data-go="synthesis">Lihat sintesis ↗</button></div>
           <div class="taxonomy-tabs" role="tablist"><button class="taxonomy-tab active" data-taxonomy="hierarchical">01 / Hierarchical</button><button class="taxonomy-tab" data-taxonomy="poly">02 / Poly-hierarchical</button><button class="taxonomy-tab" data-taxonomy="faceted">03 / Faceted</button><button class="taxonomy-tab" data-taxonomy="flat">04 / List · Flat</button><button class="taxonomy-tab" data-taxonomy="matrix">05 / Matrices</button></div>
           <div id="taxonomy-content" class="panel taxonomy-panel"><div class="empty-state">Jalankan Review Synthesis untuk menghasilkan taxonomy dari artikel yang termasuk.</div></div>
+        </section>
+
+        <section id="design" class="page-section">
+          <div class="section-heading page-title-row"><div><p class="eyebrow">RESEARCH ONION</p><h1>Taksonomi desain riset</h1><p class="page-subtitle">Metodologi, strategi, dan teknik dari artikel, disusun menurut lapisan research onion (Saunders dkk.). Dihitung oleh kode dari label hasil ekstraksi, tanpa AI dan tanpa biaya token.</p></div></div>
+          <div class="panel design-controls">
+            <label class="design-field"><span>Nama topik (akar taksonomi)</span><input id="design-topic" type="text" maxlength="200" placeholder="mis. Predict-then-Optimize"></label>
+            <label class="design-field"><span>Artikel yang dihitung</span><select id="design-scope"><option value="notexcluded">Semua kecuali yang di-EXCLUDE manual</option><option value="all">Semua artikel hasil ekstraksi</option><option value="included">Hanya yang INCLUDE (screening + full-text)</option></select></label>
+            <div class="design-actions"><button class="button button-secondary" id="design-copy" type="button">Salin outline teks</button><button class="button button-secondary" id="design-download" type="button">Unduh JSON</button></div>
+          </div>
+          <div id="design-notices"></div>
+          <div id="design-tree" class="panel design-panel"><div class="empty-state">Unggah artikel terlebih dahulu.</div></div>
+          <div id="design-matrix" class="panel design-panel hidden"></div>
+          <div id="design-basis" class="panel design-panel hidden"></div>
         </section>
 
         <section id="cooccurrence" class="page-section">
