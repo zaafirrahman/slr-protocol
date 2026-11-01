@@ -3,7 +3,7 @@
   // JANGAN diganti: ini kunci localStorage proyek. Mengganti nama membuat proyek yang sudah tersimpan di browser "hilang".
   const STORE_KEY = 'litreview_studio_project_v1';
   const EMPTY_USAGE = { calls: 0, prompt_tokens: 0, cache_hit_tokens: 0, completion_tokens: 0, cost_usd: 0, usd_to_idr: 18000 };
-  const DEFAULT_STATE = { articles: [], identifiedTotal: 0, duplicateCount: 0, synthesis: null, meta: {}, usage: {...EMPTY_USAGE}, designUi: {topic: '', scope: 'notexcluded'} };
+  const DEFAULT_STATE = { articles: [], identifiedTotal: 0, duplicateCount: 0, synthesis: null, meta: {}, usage: {...EMPTY_USAGE}, designUi: {topic: '', scope: 'notexcluded'}, norm: {draft: null, approved: null} };
   let state = loadState();
   let activeTaxonomy = 'hierarchical';
   let activeArticleDetail = null;
@@ -618,7 +618,7 @@
     const techs = shown.filter(k => k.kind === 'technique');
     const rest = shown.filter(k => k.kind !== 'technique');
     const techShown = techs.slice(0, TECH_CAP);
-    const cls = node.kind === 'branch' ? 'dt-branch' : (node.count === 0 && node.kind === 'group' ? 'dt-empty' : '');
+    const cls = node.kind === 'branch' ? 'dt-branch' : node.kind === 'family' ? 'dt-family' : (node.count === 0 && node.kind === 'group' ? 'dt-empty' : '');
     const inferred = node.inferred_count ? `<span class="dt-infer" title="Jumlah artikel yang label ini hanya disimpulkan AI, tanpa kutipan pendukung">${node.inferred_count} disimpulkan</span>` : '';
     const chips = (node.kind === 'value' || node.kind === 'technique') && node.count ? `<span class="dt-chips">${citationChips(node.article_ids)}</span>` : '';
     const inner = [
@@ -647,13 +647,17 @@
       const titles = res.missing_ids.map(id => esc((findArticle(id) || {}).title || id)).slice(0, 5).join('; ');
       notices.push(`<div class="design-notice">${res.missing_ids.length} dari ${res.n_articles} artikel dianalisis dengan versi lama dan belum punya label desain riset (${titles}${res.missing_ids.length > 5 ? '; …' : ''}). Unggah ulang PDF-nya di tab Ikhtisar untuk analisis ulang; keputusan screening dipertahankan. Analisis ulang memakai token AI.</div>`);
     }
+    const ns = res.normalization_status || {};
+    if (ns.applied && ns.unmapped_count) {
+      notices.push(`<div class="design-notice">${esc(ns.unmapped_count)} teknik belum ada di pemetaan yang disetujui dan tampil di “Belum dikelompokkan”. Buka panel Normalisasi untuk memperbaruinya.</div>`);
+    }
     if (res.n_with_design) {
       notices.push(`<div class="design-notice ok">${res.n_with_design} artikel dihitung. Label bertanda “disimpulkan” adalah tebakan AI dari cara studi dilakukan, bukan pernyataan penulis; baca ringkasan di bagian bawah halaman dan periksa artikel kuncinya.</div>`);
     }
     $('#design-notices').innerHTML = notices.join('');
     if (!res.n_with_design) {
       $('#design-tree').innerHTML = '<div class="empty-state">Belum ada artikel dengan label desain riset pada cakupan ini.</div>';
-      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden');
+      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden'); $('#norm-panel').classList.add('hidden');
       return;
     }
     const refFooter = arts.filter(a => res.tree.article_ids.includes(a.id)).map(a => `<li>[${designRefs[a.id]}] ${esc(a.title)} (${esc(a.year || 'n.d.')})</li>`).join('');
@@ -663,6 +667,7 @@
     $('#design-matrix').innerHTML = `<div class="synth-eyebrow">MATRIKS METODOLOGI × STRATEGI</div><h2>Sel kosong = kandidat research gap</h2><p class="taxonomy-help">Angka = jumlah artikel. Sel bergaris kosong belum punya artikel di korpus ini. Itu bisa berarti gap riset, atau hanya keterbatasan pencarian Anda.</p><div class="matrix-wrap"><table class="design-matrix-table"><thead><tr><th></th>${m.columns.map(c => `<th>${esc(c.label)}</th>`).join('')}<th>Total</th></tr></thead><tbody>${m.rows.map(r => `<tr><td>${esc(r.name)}</td>${m.columns.map(c => { const n = list(r.cells[c.key]).length; return `<td class="${n ? '' : 'zero'}" title="${esc(list(r.cells[c.key]).map(id => (findArticle(id) || {}).title || id).join('; '))}">${n}</td>`; }).join('')}<td>${r.total}</td></tr>`).join('')}</tbody></table></div>`;
     $('#design-basis').classList.remove('hidden');
     $('#design-basis').innerHTML = `<div class="synth-eyebrow">KEPERCAYAAN LABEL</div><h2>Didukung kutipan vs disimpulkan AI</h2><p class="taxonomy-help">Hijau = didukung kutipan yang terverifikasi di teks PDF (untuk label eksplisit seperti Case study, itu berarti penulis menyebutnya sendiri). Kuning = disimpulkan. Abu-abu = tidak dinyatakan.</p>${Object.entries(res.basis_summary).map(([k, v]) => { const t = (v.stated + v.inferred + v.not_stated) || 1; return `<div class="basis-row"><span>${esc(v.label)}</span><span class="basis-bar"><i class="b-stated" style="width:${v.stated / t * 100}%"></i><i class="b-inferred" style="width:${v.inferred / t * 100}%"></i><i class="b-none" style="width:${v.not_stated / t * 100}%"></i></span><span>${v.stated} / ${v.inferred} / ${v.not_stated}</span></div>`; }).join('')}`;
+    renderNormalization(res, arts);
   }
   async function renderDesign() {
     const box = $('#design-tree'); if (!box) return;
@@ -674,19 +679,123 @@
     if (!arts.length) {
       $('#design-notices').innerHTML = '';
       box.innerHTML = '<div class="empty-state">Belum ada artikel pada cakupan ini. Unggah PDF di tab Ikhtisar, atau ubah cakupan di atas.</div>';
-      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden');
+      $('#design-matrix').classList.add('hidden'); $('#design-basis').classList.add('hidden'); $('#norm-panel').classList.add('hidden');
       return;
     }
     const mine = ++designReq;
     try {
       await loadCodebook();
-      const res = await api('/api/design-taxonomy', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({articles: arts, topic: state.designUi.topic})});
+      const res = await api('/api/design-taxonomy', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({articles: arts, topic: state.designUi.topic, normalization: normState().approved})});
       if (mine !== designReq) return;
       designResult = {res, arts};
       paintDesign(res, arts);
     } catch (e) {
       if (mine === designReq) box.innerHTML = `<div class="empty-state">${esc(e.message || 'Gagal menyusun taksonomi desain riset.')}</div>`;
     }
+  }
+
+  // ---------------------------------------------------------------- Normalisasi teknik (tahap 3)
+  // AI hanya mengusulkan. Pemetaan baru dipakai pohon setelah pengguna menekan "Setujui & terapkan" (state.norm.approved).
+  const NORM_DROP = '__drop__';
+  const cloneJson = (x) => JSON.parse(JSON.stringify(x));
+  function normState() { state.norm = {draft: null, approved: null, ...(state.norm || {})}; return state.norm; }
+  function normOptions(draft, selected) {
+    const fams = list(draft.families).map(f => `<option value="${esc(f.id)}"${selected === f.id ? ' selected' : ''}>${esc(f.name)}</option>`).join('');
+    const none = selected == null || selected === '';
+    return `${fams}<option value=""${none ? ' selected' : ''}>Belum dikelompokkan</option><option value="${NORM_DROP}"${selected === NORM_DROP ? ' selected' : ''}>Bukan teknik (buang)</option>`;
+  }
+  function normItemRow(it, idx, draft) {
+    const others = list(it.variants).filter(v => v !== it.canonical);
+    const variants = others.length ? `<span class="norm-variants">Digabung dari: ${others.map(v => `<span class="norm-chip">${esc(v)} <button type="button" class="norm-split" data-split="${idx}" data-variant="${esc(v)}" title="Pisahkan varian ini menjadi teknik sendiri">×</button></span>`).join('')}</span>` : '';
+    return `<div class="norm-item"><span><input class="norm-name" data-item-name="${idx}" value="${esc(it.canonical)}" aria-label="Nama baku teknik">${it.new ? '<span class="norm-new">baru</span>' : ''}</span><span class="dt-count" title="Jumlah artikel">${it.count ?? '–'}</span><select data-item-fam="${idx}" aria-label="Keluarga">${normOptions(draft, it.family)}</select>${it.reason ? `<span class="norm-reason">Alasan AI: ${esc(it.reason)}</span>` : ''}${variants}</div>`;
+  }
+  function normEditor(draft) {
+    const items = list(draft.items), groups = {};
+    items.forEach((it, i) => { const k = it.family === NORM_DROP ? NORM_DROP : (it.family || ''); (groups[k] = groups[k] || []).push([it, i]); });
+    const rows = (k) => (groups[k] || []).map(([it, i]) => normItemRow(it, i, draft)).join('');
+    const fams = list(draft.families).map(f => `<div class="norm-family"><div class="norm-fam-head"><input data-fam-name="${esc(f.id)}" value="${esc(f.name)}" aria-label="Nama keluarga"><input data-fam-def="${esc(f.id)}" value="${esc(f.definition || '')}" placeholder="Definisi satu kalimat" aria-label="Definisi keluarga"><button type="button" class="button button-secondary" data-norm-action="del-family" data-id="${esc(f.id)}">Hapus keluarga</button></div>${rows(f.id) || '<p class="dt-empty">Belum ada teknik di keluarga ini.</p>'}</div>`).join('');
+    const unassigned = groups[''] ? `<div class="norm-family"><div class="norm-fam-head"><strong>Belum dikelompokkan (${groups[''].length})</strong></div>${rows('')}</div>` : '';
+    const dropped = groups[NORM_DROP] ? `<details class="norm-family norm-dropped" open><summary>Dibuang AI karena dianggap bukan teknik (${groups[NORM_DROP].length}): periksa, AI bisa keliru</summary>${rows(NORM_DROP)}</details>` : '';
+    const nDrop = (groups[NORM_DROP] || []).length, nNone = (groups[''] || []).length;
+    const actions = `<div class="norm-actions"><button type="button" class="button" data-norm-action="approve">Setujui &amp; terapkan ke pohon</button><button type="button" class="button button-secondary" data-norm-action="discard">Buang draf</button></div>`;
+    const check = `<p class="design-notice">Sebelum menyetujui, periksa: ${nDrop ? `<strong>${nDrop} teknik yang dibuang AI</strong> (bagian paling bawah, sudah dibuka), ` : ''}${nNone ? `${nNone} teknik yang belum dikelompokkan, ` : ''}penggabungan yang menyatukan metode berbeda (tombol ×), dan keluarga yang isinya tidak sesuai definisinya.</p>`;
+    return `<p class="norm-stat">${draft.principle ? `Prinsip pengelompokan: ${esc(String(draft.principle).replace(/[.\s]+$/, ''))}. ` : ''}${items.length} nama baku · ${list(draft.families).length} keluarga${draft.model ? ` · usulan ${esc(draft.model)}` : ''}. Periksa penggabungan (tombol × memisahkan varian), pindahkan teknik antar keluarga, ubah nama, lalu setujui.</p>${check}${actions}${fams}${unassigned}${dropped}<div class="norm-newfam"><input id="norm-new-family" placeholder="Nama keluarga baru" aria-label="Nama keluarga baru"><button type="button" class="button button-secondary" data-norm-action="add-family">Tambah keluarga</button></div>${actions}`;
+  }
+  function renderNormalization(res, arts) {
+    const box = $('#norm-panel'); if (!box) return;
+    const n = normState(), status = res.normalization_status || {};
+    const techCount = arts.reduce((sum, a) => sum + list((a.research_design || {}).techniques).length, 0);
+    if (!techCount) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    let body;
+    if (n.draft) {
+      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK / DRAF — BELUM DIPAKAI PADA POHON</div><h2>Periksa dan setujui pengelompokan</h2>${normEditor(n.draft)}`;
+    } else if (n.approved) {
+      const items = list(n.approved.items), dropped = items.filter(i => i.family === NORM_DROP).length, merged = items.filter(i => list(i.variants).length > 1).length;
+      const pending = status.applied && status.unmapped_count ? `<p class="design-notice">${esc(status.unmapped_count)} teknik baru belum ada di pemetaan dan tampil di “Belum dikelompokkan”: ${list(status.unmapped).slice(0, 8).map(esc).join(', ')}${status.unmapped_count > 8 ? ', …' : ''}.</p>` : '';
+      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK / DISETUJUI</div><h2>Pengelompokan teknik dipakai pada pohon</h2><p class="norm-stat">${list(n.approved.families).length} keluarga · ${items.length - dropped} nama baku · ${merged} hasil penggabungan · ${dropped} dibuang${n.approved.principle ? ` · prinsip: ${esc(n.approved.principle)}` : ''}.</p>${pending}<div class="norm-actions"><button type="button" class="button button-secondary" data-norm-action="edit">Edit pemetaan</button><button type="button" class="button${status.unmapped_count ? '' : ' button-secondary'}" data-norm-action="update">Perbarui untuk teknik baru${status.unmapped_count ? ` (${esc(status.unmapped_count)})` : ''}</button><button type="button" class="button button-secondary" data-norm-action="reset">Hapus normalisasi</button></div>`;
+    } else {
+      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK</div><h2>Satukan nama dan kelompokkan teknik</h2><p class="norm-stat">Ada ${techCount} penyebutan teknik pada artikel di cakupan ini. AI mengusulkan: (1) menyatukan sinonim, (2) membuang istilah yang bukan teknik, (3) mengelompokkan ke keluarga sebagai kotak di bawah cabang Kuantitatif. Hasilnya berupa draf yang kamu periksa dan setujui; satu panggilan AI singkat (biasanya di bawah $0,01).</p><div class="norm-actions"><button type="button" class="button" data-norm-action="propose">Usulkan pengelompokan (AI)</button></div>`;
+    }
+    box.innerHTML = body;
+  }
+  async function normPropose(button, useExisting) {
+    const n = normState(), arts = designScopeArticles();
+    if (!arts.length) return;
+    const label = button.textContent; button.disabled = true; button.textContent = 'Memproses…';
+    try {
+      const data = await api('/api/normalize-techniques', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({articles: arts, topic: (state.designUi || {}).topic || '', research_question: (state.meta || {}).research_question || '', existing: useExisting ? (n.draft || n.approved || null) : null})});
+      addUsage(data.usage);
+      n.draft = data.normalization; saveState();
+      toast(`Usulan siap: ${list(data.normalization.items).length} nama baku. Periksa lalu setujui.`, 'success');
+    } catch (e) {
+      addUsage(e.usage);
+      toast(e.message || 'Normalisasi gagal.', 'error');
+    }
+    if (designResult) renderNormalization(designResult.res, designResult.arts); else button.textContent = label;
+  }
+  function handleNormClick(e) {
+    const n = normState();
+    const split = e.target.closest('[data-split]');
+    if (split && n.draft) {
+      const it = n.draft.items[Number(split.dataset.split)], v = split.dataset.variant;
+      if (it && list(it.variants).includes(v)) {
+        it.variants = it.variants.filter(x => x !== v);
+        n.draft.items.push({canonical: v, variants: [v], family: it.family ?? null, reason: '', count: null, article_ids: [], new: true});
+        saveState(); renderNormalization(designResult.res, designResult.arts);
+      }
+      return;
+    }
+    const btn = e.target.closest('[data-norm-action]'); if (!btn) return;
+    const act = btn.dataset.normAction;
+    if (act === 'propose') return normPropose(btn, false);
+    if (act === 'update') return normPropose(btn, true);
+    if (act === 'edit' && n.approved) n.draft = cloneJson(n.approved);
+    else if (act === 'discard') n.draft = null;
+    else if (act === 'reset') { if (!window.confirm('Hapus normalisasi? Pohon kembali menampilkan teknik apa adanya.')) return; n.draft = null; n.approved = null; saveState(); return renderDesign(); }
+    else if (act === 'approve' && n.draft) { n.approved = cloneJson(n.draft); n.approved.items.forEach(i => { i.new = false; }); n.approved.approved_at = new Date().toISOString(); n.draft = null; saveState(); toast('Pemetaan disetujui dan diterapkan ke pohon.', 'success'); return renderDesign(); }
+    else if (act === 'add-family' && n.draft) {
+      const name = ($('#norm-new-family').value || '').trim().slice(0, 60);
+      if (!name) { toast('Isi nama keluarga terlebih dahulu.', 'error'); return; }
+      if (n.draft.families.some(f => f.name.toLowerCase() === name.toLowerCase())) { toast('Nama keluarga itu sudah ada.', 'error'); return; }
+      const next = Math.max(0, ...n.draft.families.map(f => Number(String(f.id).replace(/\D/g, '')) || 0)) + 1;
+      n.draft.families.push({id: `F${next}`, name, definition: ''});
+    } else if (act === 'del-family' && n.draft) {
+      const id = btn.dataset.id;
+      n.draft.items.forEach(i => { if (i.family === id) i.family = null; });
+      n.draft.families = n.draft.families.filter(f => f.id !== id);
+    } else return;
+    saveState(); renderNormalization(designResult.res, designResult.arts);
+  }
+  function handleNormChange(e) {
+    const n = normState(); if (!n.draft) return;
+    const t = e.target;
+    if (t.dataset.famName !== undefined) { const f = n.draft.families.find(x => x.id === t.dataset.famName); if (f) f.name = t.value.trim().slice(0, 60) || f.name; }
+    else if (t.dataset.famDef !== undefined) { const f = n.draft.families.find(x => x.id === t.dataset.famDef); if (f) f.definition = t.value.trim().slice(0, 240); }
+    else if (t.dataset.itemName !== undefined) { const it = n.draft.items[Number(t.dataset.itemName)]; if (it) it.canonical = t.value.trim().slice(0, 80) || it.canonical; }
+    else if (t.dataset.itemFam !== undefined) { const it = n.draft.items[Number(t.dataset.itemFam)]; if (it) { it.family = t.value === '' ? null : t.value; saveState(); renderNormalization(designResult.res, designResult.arts); return; } }
+    saveState();
   }
   function renderTopicOutline(root, nodes) {
     const kids = {}; nodes.forEach(n => { (kids[String(n.parent_id || root.id)] = kids[String(n.parent_id || root.id)] || []).push(n); });
@@ -964,8 +1073,10 @@
     $('#run-synthesis').addEventListener('click',handleSynthesis);
     $('#design-topic').addEventListener('input',e=>{state.designUi={...(state.designUi||{}),topic:e.target.value};saveState();clearTimeout(window.__designTimer);window.__designTimer=setTimeout(renderDesign,350);});
     $('#design-scope').addEventListener('change',e=>{state.designUi={...(state.designUi||{}),scope:e.target.value};saveState();renderDesign();});
+    $('#norm-panel').addEventListener('click', handleNormClick);
+    $('#norm-panel').addEventListener('change', handleNormChange);
     $('#design-copy').addEventListener('click',async()=>{if(!designResult){return;}const t=dtText(designResult.res.tree)+'\nReferensi:\n'+designResult.arts.filter(a=>designResult.res.tree.article_ids.includes(a.id)).map(a=>`[${designRefs[a.id]}] ${a.title} (${a.year||'n.d.'})`).join('\n');if(await copyText(t)){toast('Outline taksonomi disalin ke clipboard.','success');return;}toast('Browser memblokir clipboard. Teks ditampilkan di bawah: pilih semua lalu salin manual (Ctrl+C).','error');showCopyFallback(t);});
-    $('#design-download').addEventListener('click',()=>{if(!designResult){return;}const blob=new Blob([JSON.stringify(designResult.res,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='taksonomi-desain-riset.json';link.click();URL.revokeObjectURL(link.href);});
+    $('#design-download').addEventListener('click',()=>{if(!designResult){return;}const blob=new Blob([JSON.stringify({...designResult.res, normalization: normState().approved},null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='taksonomi-desain-riset.json';link.click();URL.revokeObjectURL(link.href);});
     $('#pdf-files').addEventListener('change',renderSelectedFiles);
     const dz=$('#dropzone');
     ['dragenter','dragover'].forEach(name=>dz.addEventListener(name,e=>{e.preventDefault();dz.classList.add('dragging');}));
