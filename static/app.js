@@ -797,6 +797,108 @@
     else if (t.dataset.itemFam !== undefined) { const it = n.draft.items[Number(t.dataset.itemFam)]; if (it) { it.family = t.value === '' ? null : t.value; saveState(); renderNormalization(designResult.res, designResult.arts); return; } }
     saveState();
   }
+
+  // ---------------------------------------------------------------- Laporan HTML (untuk dibaca manusia)
+  // Satu berkas mandiri: tanpa permintaan jaringan (CSP menutupnya), ramah cetak, dan data JSON ikut ditanam sebagai cadangan.
+  const SCOPE_LABEL = {notexcluded: 'Semua artikel kecuali yang di-EXCLUDE manual', all: 'Semua artikel hasil ekstraksi', included: 'Hanya artikel INCLUDE (screening dan full-text)'};
+  const REPORT_CSS = `:root{--bg:#fbfbf8;--fg:#1c1c1a;--dim:#6b6b66;--line:#d9d9d2;--accent:#1f5f8b;--ok:#2e7d32;--warn:#a15c00;--card:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecece6;--dim:#9a9a92;--line:#33332f;--accent:#7fb7e0;--ok:#7bc47f;--warn:#e0a84f;--card:#1b1b1a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 70px}h1{font-size:24px;margin:.2em 0}h2{font-size:17px;margin:34px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}h3{font-size:14px;margin:18px 0 6px}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}.meta{color:var(--dim);font-size:12.5px}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}.stat{border:1px solid var(--line);background:var(--card);padding:8px 14px;min-width:120px}.stat b{display:block;font-size:20px}.stat span{font-size:11.5px;color:var(--dim)}
+.card{border:1px solid var(--line);background:var(--card);padding:12px 16px;margin:10px 0}.card p{margin:.4em 0}
+dl{margin:0;display:grid;grid-template-columns:170px 1fr;gap:4px 14px}dt{color:var(--dim)}dd{margin:0;white-space:pre-wrap}
+ul{list-style:none;margin:0;padding-left:20px;border-left:1px solid var(--line)}.tree{padding-left:0;border-left:0}li{margin:3px 0}
+summary{cursor:pointer}.nm{font-weight:600}.branch>details>summary .nm{font-size:15px}.ct{display:inline-block;min-width:22px;text-align:center;border:1px solid var(--line);font-size:11px;padding:0 6px;margin-left:6px}
+.inf{color:var(--warn);font-size:11px}.ok{color:var(--ok)}.refs{color:var(--accent);font-size:11.5px;margin-left:6px}.df{color:var(--dim);font-size:12px;margin:1px 0 3px}.nt{color:var(--accent);font-size:12px}.dim,.zero>.nm,.empty{color:var(--dim)}
+.family>details>summary .nm{color:var(--accent)}table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}th{background:var(--card)}td.n,th.n{text-align:center}td.z{color:var(--dim);background:repeating-linear-gradient(45deg,transparent 0 6px,var(--line) 6px 7px)}
+.wrap{overflow-x:auto}.bar{display:flex;height:10px;border:1px solid var(--line);min-width:140px}.bar i{display:block}.b1{background:var(--ok)}.b2{background:var(--warn)}.b3{background:var(--line)}
+table.art th:nth-child(1){width:4%}table.art th:nth-child(2){width:34%}table.art th:nth-child(7){width:8%}ol.refs-list{padding-left:0;list-style:none;font-size:12.5px}ol.refs-list li{margin:5px 0}a{color:var(--accent)}.btns{margin:10px 0}button{font:inherit;padding:4px 12px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+footer{margin-top:40px;color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:10px}
+@media print{:root{--bg:#fff;--fg:#000;--dim:#444;--line:#bbb;--accent:#000;--card:#fff;--ok:#000;--warn:#000}.noprint{display:none}body{font-size:10.5pt}main{padding:0}a{color:inherit;text-decoration:none}h2{break-after:avoid}li.leaf,tr,.card{break-inside:avoid}.b1{background:#000}.b2{background:#808080}.b3{background:#d8d8d8}}`;
+  function rptRefs(ids) {
+    const nums = list(ids).map(id => designRefs[id]).filter(Boolean).sort((a, b) => a - b);
+    return nums.length ? `<span class="refs">[${nums.join(', ')}]</span>` : '';
+  }
+  function rptNode(node) {
+    const kids = list(node.children);
+    const emptyValues = kids.filter(k => k.kind === 'value' && k.count === 0);
+    const shown = kids.filter(k => !(k.kind === 'value' && k.count === 0));
+    const inf = node.inferred_count ? ` <span class="inf">${esc(node.inferred_count)} disimpulkan</span>` : '';
+    const head = `<span class="nm">${esc(node.name)}</span><span class="ct">${esc(node.count)}</span>${inf}${(node.kind === 'value' || node.kind === 'technique') ? rptRefs(node.article_ids) : ''}`;
+    const meta = `${node.definition ? `<div class="df">${esc(node.definition)}</div>` : ''}${node.note ? `<div class="nt">${esc(node.note)}</div>` : ''}`;
+    const inner = shown.map(rptNode).join('') + (emptyValues.length ? `<li class="empty">Belum ada artikel: ${emptyValues.map(k => esc(k.name)).join(', ')}</li>` : '');
+    const cls = `${esc(node.kind)}${node.count === 0 ? ' zero' : ''}`;
+    if (!inner) return `<li class="${cls} leaf">${head}${meta}</li>`;
+    return `<li class="${cls}"><details open><summary>${head}</summary>${meta}<ul>${inner}</ul></details></li>`;
+  }
+  function rptCell(a, field) {
+    const item = (a.research_design || {})[field] || {};
+    let entries = [];
+    if (Array.isArray(item.items) && item.items.length) entries = item.items.map(e => ({code: e.code, basis: e.basis}));
+    else if (Array.isArray(item.value)) entries = item.value.map(v => ({code: v, basis: item.basis}));
+    else if (item.value && item.value !== 'not_stated') entries = [{code: item.value, basis: item.basis}];
+    if (!entries.length) return '<span class="dim">—</span>';
+    return entries.map(e => `${esc(cbLabel(field, e.code))}\u00a0${e.basis === 'stated' ? '<span class="ok" title="didukung kutipan / dinyatakan">✓</span>' : '<span class="inf" title="disimpulkan AI">~</span>'}`).join('<br>');
+  }
+  function rptAuthors(a) {
+    const names = list(a.authors).map(x => String(x)).filter(Boolean);
+    return names.length ? (names.length > 3 ? names.slice(0, 3).join(', ') + ', dkk.' : names.join(', ')) : 'Penulis tidak tercatat';
+  }
+  function buildDesignReport() {
+    const {res, arts} = designResult, meta = state.meta || {}, ui = state.designUi || {}, approved = normState().approved, draft = normState().draft;
+    designRefs = {}; arts.forEach((a, i) => { designRefs[a.id] = i + 1; });
+    const when = new Date(), whenText = when.toLocaleString('id-ID', {dateStyle: 'long', timeStyle: 'short'});
+    const techNames = new Set(); (function walk(n) { if (n.kind === 'technique') techNames.add(n.name); list(n.children).forEach(walk); })(res.tree);
+    const bs = Object.values(res.basis_summary || {}), sum = k => bs.reduce((s, f) => s + (f[k] || 0), 0);
+    const cfg = [['Research question', meta.research_question], ['Sumber/database', meta.source_name], ['Tanggal pencarian', meta.search_date], ['Search query', meta.search_query], ['Kriteria inklusi', meta.inclusion], ['Kriteria eksklusi', meta.exclusion]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v ? esc(v) : '<span class="dim">(tidak diisi)</span>'}</dd>`).join('');
+    const topic = res.topic || ui.topic || 'Korpus artikel';
+    const matrix = res.matrix, m = `<div class="wrap"><table><thead><tr><th></th>${matrix.columns.map(c => `<th class="n">${esc(c.label)}</th>`).join('')}<th class="n">Total</th></tr></thead><tbody>${matrix.rows.map(r => `<tr><td>${esc(r.name)}</td>${matrix.columns.map(c => { const n = list(r.cells[c.key]).length; return `<td class="n${n ? '' : ' z'}">${n}</td>`; }).join('')}<td class="n">${esc(r.total)}</td></tr>`).join('')}</tbody></table></div>`;
+    const basis = `<div class="wrap"><table><thead><tr><th>Lapisan research onion</th><th>Proporsi</th><th class="n">Didukung kutipan</th><th class="n">Disimpulkan AI</th><th class="n">Tidak dinyatakan</th></tr></thead><tbody>${Object.values(res.basis_summary || {}).map(v => { const t = (v.stated + v.inferred + v.not_stated) || 1; return `<tr><td>${esc(v.label)}</td><td><span class="bar"><i class="b1" style="width:${v.stated / t * 100}%"></i><i class="b2" style="width:${v.inferred / t * 100}%"></i><i class="b3" style="width:${v.not_stated / t * 100}%"></i></span></td><td class="n">${esc(v.stated)}</td><td class="n">${esc(v.inferred)}</td><td class="n">${esc(v.not_stated)}</td></tr>`; }).join('')}</tbody></table></div>`;
+    let normSection;
+    if (approved) {
+      const items = list(approved.items), fam = {}; list(approved.families).forEach(f => { fam[f.id] = f; });
+      const famRows = list(approved.families).map(f => { const names = items.filter(i => i.family === f.id).map(i => i.canonical); return `<tr><td><b>${esc(f.name)}</b></td><td>${esc(f.definition || '')}</td><td class="n">${names.length}</td><td>${names.map(esc).join(', ')}</td></tr>`; }).join('');
+      const merged = items.filter(i => list(i.variants).length > 1).map(i => `<li><b>${esc(i.canonical)}</b> ← ${list(i.variants).filter(v => v !== i.canonical).map(esc).join(', ')}</li>`).join('');
+      const dropped = items.filter(i => i.family === NORM_DROP).map(i => `<li>${esc(i.canonical)}${i.reason ? ` <span class="dim">(${esc(i.reason)})</span>` : ''}</li>`).join('');
+      normSection = `<p class="meta">Pemetaan disetujui${approved.approved_at ? ' pada ' + esc(new Date(approved.approved_at).toLocaleString('id-ID', {dateStyle: 'long', timeStyle: 'short'})) : ''}. Usulan AI${approved.model ? ' (' + esc(approved.model) + ')' : ''}, keputusan akhir oleh peneliti.${approved.principle ? ' Prinsip: ' + esc(String(approved.principle).replace(/[.\s]+$/, '')) + '.' : ''}</p>${draft ? '<p class="inf">Catatan: ada draf pemetaan yang belum disetujui; laporan ini memakai pemetaan yang disetujui terakhir.</p>' : ''}<div class="wrap"><table><thead><tr><th>Keluarga</th><th>Definisi</th><th class="n">Teknik</th><th>Teknik baku</th></tr></thead><tbody>${famRows}</tbody></table></div>${merged ? `<h3>Penggabungan nama</h3><ul class="tree">${merged}</ul>` : ''}${dropped ? `<h3>Dibuang karena bukan teknik</h3><ul class="tree">${dropped}</ul>` : ''}`;
+    } else {
+      normSection = '<p class="meta">Tidak ada normalisasi yang disetujui: teknik ditampilkan sebagaimana diekstrak, hanya digabung bila beda huruf besar/kecil atau tanda baca.</p>';
+    }
+    const rows = arts.map((a, i) => `<tr><td class="n">${i + 1}</td><td>${esc(a.title || '(tanpa judul)')} <span class="dim">(${esc(a.year || 'n.d.')})</span></td><td>${rptCell(a, 'methodological_choice')}</td><td>${rptCell(a, 'strategy')}</td><td>${rptCell(a, 'data_source')}</td><td>${rptCell(a, 'time_horizon')}</td><td class="n">${list((a.research_design || {}).techniques).length}</td></tr>`).join('');
+    const refs = arts.map((a, i) => { const doi = String(a.doi || '').trim(); const link = /^10\.\d{4,9}\/[-._;()\/:A-Za-z0-9]+$/.test(doi) ? ` <a href="${esc('https://doi.org/' + encodeURI(doi))}" rel="noopener noreferrer">${esc(doi)}</a>` : ''; return `<li>[${i + 1}] ${esc(rptAuthors(a))} (${esc(a.year || 'n.d.')}). ${esc(a.title || '(tanpa judul)')}.${link}</li>`; }).join('');
+    const data = {generated_at: when.toISOString(), topic, scope: ui.scope, codebook_version: res.codebook_version, review: meta, design: res, normalization: approved || null,
+      articles: arts.map((a, i) => ({n: i + 1, id: a.id, title: a.title, year: a.year, doi: a.doi, authors: a.authors}))};
+    const dataJson = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    return `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"><title>Taksonomi desain riset: ${esc(topic)}</title><style>${REPORT_CSS}</style></head><body><main>
+<p class="eyebrow">Laporan taksonomi desain riset · SLR Protocol</p><h1>${esc(topic)}</h1>
+<p class="meta">Dibuat ${esc(whenText)} · kerangka research onion (Saunders dkk., 2019) · codebook ${esc(res.codebook_version)} · cakupan: ${esc(SCOPE_LABEL[ui.scope] || ui.scope || '-')}</p>
+<div class="stats"><div class="stat"><b>${esc(res.n_with_design)}</b><span>artikel dianalisis</span></div><div class="stat"><b>${esc(techNames.size)}</b><span>teknik baku</span></div><div class="stat"><b>${esc((res.normalization_status || {}).families || 0)}</b><span>keluarga teknik</span></div><div class="stat"><b>${esc(sum('inferred'))}</b><span>label disimpulkan AI (dari ${esc(sum('stated') + sum('inferred') + sum('not_stated'))})</span></div></div>
+<h2>1. Konfigurasi review</h2><div class="card"><dl>${cfg}</dl></div>
+<h2>2. Cara membaca dan cara pembuatan</h2><div class="card"><p>Label desain riset diekstrak dari teks PDF tiap artikel dengan bantuan AI, mengikuti codebook research onion. Setiap kutipan bukti diperiksa benar-benar ada di PDF, tetapi <b>keberadaan kutipan tidak menjamin ia mendukung label</b>; periksa artikel kunci sebelum dikutip.</p><p><span class="ok">✓</span> didukung kutipan (label eksplisit seperti <i>Case study</i> hanya diterima bila penulis menyebut istilahnya sendiri) · <span class="inf">~</span> disimpulkan AI, tidak dinyatakan penulis · <span class="dim">—</span> tidak dinyatakan. Angka dalam kotak = jumlah artikel; <span class="refs">[n]</span> = nomor referensi pada bagian 8.</p><p>Nama dan keluarga teknik diusulkan AI lalu disetujui peneliti (bagian 5). Daftar teknik per artikel dibatasi maksimal 8 teknik utama, sehingga jumlah di pohon berarti “disebut sebagai teknik utama”, bukan pemakaian lengkap. Laporan ini bukan penilaian kualitas artikel.</p></div>
+<h2>3. Pohon taksonomi</h2><div class="btns noprint"><button id="open-all" type="button">Buka semua</button> <button id="close-all" type="button">Tutup semua</button></div><ul class="tree"><li class="root"><span class="nm" style="font-size:16px">${esc(topic)}</span> <span class="ct">${esc(res.tree.count)}</span><ul>${list(res.tree.children).map(rptNode).join('')}</ul></li></ul>
+<h2>4. Matriks metodologi × strategi</h2><p class="meta">Sel kosong (berarsir) belum punya artikel di korpus ini: bisa berarti celah riset, atau hanya keterbatasan pencarian.</p>${m}
+<h2>5. Normalisasi teknik</h2>${normSection}
+<h2>6. Kepercayaan label</h2>${basis}
+<h2>7. Label per artikel</h2><div class="wrap"><table class="art"><thead><tr><th class="n">No</th><th>Artikel</th><th>Metodologi</th><th>Strategi</th><th>Pengumpulan data</th><th>Time horizon</th><th class="n">Teknik</th></tr></thead><tbody>${rows}</tbody></table></div>
+<h2>8. Daftar referensi</h2><ol class="refs-list">${refs}</ol>
+<footer>Berkas ini adalah potret data pada waktu pembuatan; buat ulang bila data berubah. Data JSON ditanam di bawah (elemen <code>#slr-data</code>) sebagai cadangan.</footer></main>
+<script type="application/json" id="slr-data">${dataJson}</script>
+<script>(function(){var d=document;function all(o){d.querySelectorAll('details').forEach(function(x){x.open=o})}var a=d.getElementById('open-all'),b=d.getElementById('close-all');if(a)a.onclick=function(){all(true)};if(b)b.onclick=function(){all(false)};window.addEventListener('beforeprint',function(){all(true)})})();</script></body></html>`;
+  }
+  function downloadDesignReport() {
+    if (!designResult) { toast('Belum ada pohon untuk diekspor.', 'error'); return; }
+    let html;
+    try { html = buildDesignReport(); } catch (e) { toast('Gagal membuat laporan: ' + (e.message || e), 'error'); return; }
+    const slug = String((state.designUi || {}).topic || 'topik').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'topik';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([html], {type: 'text/html;charset=utf-8'}));
+    link.download = `laporan-desain-riset-${slug}-${new Date().toISOString().slice(0, 10)}.html`;
+    link.click(); URL.revokeObjectURL(link.href);
+    toast('Laporan HTML diunduh.', 'success');
+  }
   function renderTopicOutline(root, nodes) {
     const kids = {}; nodes.forEach(n => { (kids[String(n.parent_id || root.id)] = kids[String(n.parent_id || root.id)] || []).push(n); });
     const walk = (parentId) => (kids[String(parentId)] || []).map(n => {
@@ -1073,6 +1175,7 @@
     $('#run-synthesis').addEventListener('click',handleSynthesis);
     $('#design-topic').addEventListener('input',e=>{state.designUi={...(state.designUi||{}),topic:e.target.value};saveState();clearTimeout(window.__designTimer);window.__designTimer=setTimeout(renderDesign,350);});
     $('#design-scope').addEventListener('change',e=>{state.designUi={...(state.designUi||{}),scope:e.target.value};saveState();renderDesign();});
+    $('#design-report').addEventListener('click', downloadDesignReport);
     $('#norm-panel').addEventListener('click', handleNormClick);
     $('#norm-panel').addEventListener('change', handleNormChange);
     $('#design-copy').addEventListener('click',async()=>{if(!designResult){return;}const t=dtText(designResult.res.tree)+'\nReferensi:\n'+designResult.arts.filter(a=>designResult.res.tree.article_ids.includes(a.id)).map(a=>`[${designRefs[a.id]}] ${a.title} (${a.year||'n.d.'})`).join('\n');if(await copyText(t)){toast('Outline taksonomi disalin ke clipboard.','success');return;}toast('Browser memblokir clipboard. Teks ditampilkan di bawah: pilih semua lalu salin manual (Ctrl+C).','error');showCopyFallback(t);});

@@ -248,6 +248,24 @@ keluarga tetap tampil di \"Belum dikelompokkan\". Dua item beranama baku identik
 `ANALYSIS_VERSION` 6: prompt ekstraksi meminta nama metode saja (tanpa \"classifier\"/\"framework\") dan melarang topik, dataset,
 metrik, atau komponen model dimasukkan sebagai teknik.
 
+### 4.7 Laporan HTML (untuk dibaca manusia)
+
+Tombol **Ekspor laporan (HTML)** di tab Desain Riset (`buildDesignReport()` di `app.js`, dibuat sepenuhnya di browser dari hasil
+`/api/design-taxonomy` dan pemetaan normalisasi yang DISETUJUI). JSON tetap untuk mesin (cadangan, impor, analisis); HTML untuk
+dibaca, dibagikan, dan dicetak ke PDF.
+
+- Satu berkas mandiri: CSS dan skrip kecil inline, tanpa sumber daya luar. Meta CSP (`default-src 'none'`) menutup permintaan jaringan.
+- Isi: konfigurasi review, cara membaca (legenda, batas 8 teknik), pohon yang bisa dilipat dengan definisi dan nomor referensi,
+  matriks metodologi x strategi, normalisasi teknik (keluarga, penggabungan, yang dibuang), kepercayaan label, label per artikel,
+  daftar referensi. Tema terang/gelap mengikuti sistem; `@media print` memaksa terang, membuka semua lipatan, dan membedakan
+  batang proporsi dengan tingkat abu-abu.
+- Keamanan: semua teks dari PDF/AI di-escape; DOI hanya jadi tautan bila cocok pola DOI ketat; data JSON ditanam di
+  `<script type=\"application/json\" id=\"slr-data\">` dengan `< > & U+2028 U+2029` di-escape agar tidak bisa menutup elemen.
+- Laporan adalah potret data saat dibuat; buat ulang bila data berubah. Draf pemetaan yang belum disetujui TIDAK dipakai
+  (dicatat di laporan).
+- Belum ada tes browser otomatis di repo; pengujian dilakukan dengan jsdom (termasuk muatan berbahaya di judul/penulis/DOI/teknik/topik)
+  dan render PDF (WeasyPrint) untuk memeriksa tata letak cetak. Tampilan di browser sungguhan belum diverifikasi visual.
+
 ## 5. Model data
 
 ### 5.1 Record artikel (hasil `/api/analyze`, disimpan di `state.articles`)
