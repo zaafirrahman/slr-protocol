@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+# Salinan opsional di server (KEEP_SERVER_PDFS / KEEP_SERVER_JSON) dan ekspor proyek lokal
+data/
+*.project.json
+slr-protocol-project-*.json
+litreview-project-*.json
+# Keluaran riset (JSON taksonomi dan laporan HTML) tidak ikut repo
+taksonomi-desain-riset*.json
+laporan-desain-riset-*.html
+contoh-laporan-*.html
