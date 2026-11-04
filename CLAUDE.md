@@ -231,8 +231,18 @@ Prinsip: **AI hanya mengusulkan, pengguna menyetujui, kode menerapkan secara det
 - State browser: `state.norm = {draft, approved}`. Pohon hanya memakai `approved` (dikirim ke `/api/design-taxonomy` sebagai
   `normalization`); `draft` adalah usulan/hasil edit yang belum disetujui. Ikut ekspor proyek; unduhan JSON taksonomi memuat
   `normalization`.
-- Inkremental: \"Perbarui untuk teknik baru\" hanya memproses teknik yang tidak ada di pemetaan, termasuk item yang tersimpan
-  \"belum dikelompokkan\" (konsisten dengan hitungan `normalization_status.unmapped_count`).
+- Inkremental (diperbarui 3 Nov 2026): "Perbarui untuk teknik baru" mempertahankan keluarga dan item lama, memproses hanya teknik
+  yang tidak ada di pemetaan (termasuk item "belum dikelompokkan"), dan MENEMPELKAN nama baru ke item lama alih-alih membuat item
+  duplikat. Urutannya: (1) `consolidate_normalization()` menggabung duplikat yang sudah ada di pemetaan (kunci nama sama; hanya bila
+  keluarga sama; duplikat lintas keluarga hanya dilaporkan di `review`); (2) `auto_attach()` menempelkan nama baru yang jelas sama
+  tanpa AI (`_merge_key`: singkatan kurung dan kata generik di ujung diabaikan); (3) AI hanya untuk sisanya, dengan daftar NAMA BAKU
+  YANG SUDAH ADA di prompt dan field `attach` (nama baru -> nama baku lama); (4) `refresh_item_counts()` menghitung ulang artikel dan
+  ejaan pada item lama. Hasil melaporkan `attached`, `merged_existing`, `review`; item yang tersentuh membawa `touched` (UI: "+N varian baru").
+- `_tech_key()` mengabaikan singkatan di kurung pada ujung nama HANYA bila huruf-hurufnya inisial kata sebelumnya ("random forest (RF)");
+  "(RBF)" pada "support vector machine" tidak dibuang. Penjaga varian bermakna (`_MODIFIERS`: weighted, quantile, conformal, robust,
+  stochastic, distributionally) berlaku di `finalize_normalization` untuk `merges` dan `attach`: anggota dengan kata pengubah yang
+  tidak sama dengan nama baku dikeluarkan menjadi item sendiri. Daftar kata pengubah ini dipilih dari korpus Predict-then-Optimize;
+  korpus bidang lain mungkin butuh tambahan.
 - Tanpa pemetaan, pohon tetap daftar datar seperti sebelumnya.
 
 Audit pertama pada korpus nyata (17 artikel INCLUDE, 109 nama teknik): usulan AI umumnya baik (sebagian besar penggabungan benar,
@@ -410,7 +420,7 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 
 ## 10. Verifikasi dan pengujian
 
-Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (131 pengecekan: normalisasi
+Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (156 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
 memakai `data/pdfs` atau `SLR_PDF_DIR`. `tests/fixtures_research_design.json` berisi label buatan tangan (gold standard
 mini, bukan keluaran AI), dua entri sengaja salah untuk menguji pertahanan. Belum ada tes browser otomatis di repo.

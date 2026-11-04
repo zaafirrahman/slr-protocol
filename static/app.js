@@ -707,7 +707,7 @@
   function normItemRow(it, idx, draft) {
     const others = list(it.variants).filter(v => v !== it.canonical);
     const variants = others.length ? `<span class="norm-variants">Digabung dari: ${others.map(v => `<span class="norm-chip">${esc(v)} <button type="button" class="norm-split" data-split="${idx}" data-variant="${esc(v)}" title="Pisahkan varian ini menjadi teknik sendiri">×</button></span>`).join('')}</span>` : '';
-    return `<div class="norm-item"><span><input class="norm-name" data-item-name="${idx}" value="${esc(it.canonical)}" aria-label="Nama baku teknik">${it.new ? '<span class="norm-new">baru</span>' : ''}</span><span class="dt-count" title="Jumlah artikel">${it.count ?? '–'}</span><select data-item-fam="${idx}" aria-label="Keluarga">${normOptions(draft, it.family)}</select>${it.reason ? `<span class="norm-reason">Alasan AI: ${esc(it.reason)}</span>` : ''}${variants}</div>`;
+    return `<div class="norm-item"><span><input class="norm-name" data-item-name="${idx}" value="${esc(it.canonical)}" aria-label="Nama baku teknik">${it.new ? '<span class="norm-new">baru</span>' : ''}${list(it.touched).length ? '<span class="norm-new" title="Nama yang baru ditempelkan: ' + esc(list(it.touched).join(', ')) + '">+' + list(it.touched).length + ' varian baru</span>' : ''}</span><span class="dt-count" title="Jumlah artikel">${it.count ?? '–'}</span><select data-item-fam="${idx}" aria-label="Keluarga">${normOptions(draft, it.family)}</select>${it.reason ? `<span class="norm-reason">Alasan AI: ${esc(it.reason)}</span>` : ''}${variants}</div>`;
   }
   function normEditor(draft) {
     const items = list(draft.items), groups = {};
@@ -748,7 +748,8 @@
         body: JSON.stringify({articles: arts, topic: (state.designUi || {}).topic || '', research_question: (state.meta || {}).research_question || '', existing: useExisting ? (n.draft || n.approved || null) : null})});
       addUsage(data.usage);
       n.draft = data.normalization; saveState();
-      toast(`Usulan siap: ${list(data.normalization.items).length} nama baku. Periksa lalu setujui.`, 'success');
+      const nm = data.normalization, att = list(nm.attached).length, mex = list(nm.merged_existing).length, rev = list(nm.review).length;
+      toast(`Usulan siap: ${list(nm.items).length} nama baku.` + (att ? ` ${att} nama baru ditempelkan ke item lama.` : '') + (mex ? ` ${mex} duplikat lama digabung otomatis.` : '') + (rev ? ` ${rev} duplikat lintas keluarga perlu dicek manual.` : '') + ' Periksa lalu setujui.', 'success');
     } catch (e) {
       addUsage(e.usage);
       toast(e.message || 'Normalisasi gagal.', 'error');
@@ -774,7 +775,7 @@
     if (act === 'edit' && n.approved) n.draft = cloneJson(n.approved);
     else if (act === 'discard') n.draft = null;
     else if (act === 'reset') { if (!window.confirm('Hapus normalisasi? Pohon kembali menampilkan teknik apa adanya.')) return; n.draft = null; n.approved = null; saveState(); return renderDesign(); }
-    else if (act === 'approve' && n.draft) { n.approved = cloneJson(n.draft); n.approved.items.forEach(i => { i.new = false; }); n.approved.approved_at = new Date().toISOString(); n.draft = null; saveState(); toast('Pemetaan disetujui dan diterapkan ke pohon.', 'success'); return renderDesign(); }
+    else if (act === 'approve' && n.draft) { n.approved = cloneJson(n.draft); n.approved.items.forEach(i => { i.new = false; delete i.touched; }); ['attached', 'merged_existing', 'review'].forEach(k => { delete n.approved[k]; }); n.approved.approved_at = new Date().toISOString(); n.draft = null; saveState(); toast('Pemetaan disetujui dan diterapkan ke pohon.', 'success'); return renderDesign(); }
     else if (act === 'add-family' && n.draft) {
       const name = ($('#norm-new-family').value || '').trim().slice(0, 60);
       if (!name) { toast('Isi nama keluarga terlebih dahulu.', 'error'); return; }
