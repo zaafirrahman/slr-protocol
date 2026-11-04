@@ -1520,6 +1520,7 @@ def refresh_item_counts(running, techniques):
         slot = fresh.setdefault(i, {"ids": [], "raw": []})
         slot["ids"] += [a for a in t["article_ids"] if a not in slot["ids"]]
         slot["raw"] += [r for r in t["raw"] if r not in slot["raw"]]
+    absorbed = []
     for i, slot in fresh.items():
         item = running["items"][i]
         known = set(item.get("variants") or [])
@@ -1528,6 +1529,8 @@ def refresh_item_counts(running, techniques):
         item["count"] = len(slot["ids"])
         if added:
             _absorb(item, added, None, added[0])
+            absorbed += [{"name": r, "to": item.get("canonical"), "how": "ejaan"} for r in added]
+    return absorbed
 
 
 def normalization_prompt(techniques, running, topic, rq):
@@ -1620,7 +1623,7 @@ def finalize_normalization(proposal, techniques, running=None):
         for n in names:
             raw += [r for r in by_name[n]["raw"] if r not in raw]
             ids += [i for i in by_name[n]["article_ids"] if i not in ids]
-        return {"canonical": canonical, "variants": raw, "family": family, "reason": reason, "count": len(ids), "article_ids": ids, "new": True}
+        return {"canonical": _strip_abbreviation(canonical)[:80], "variants": raw, "family": family, "reason": reason, "count": len(ids), "article_ids": ids, "new": True}
 
     used, new_items = set(), []
     for drop in (proposal.get("drops") if isinstance(proposal.get("drops"), list) else []):
@@ -1697,7 +1700,7 @@ def normalize_techniques(articles, existing, topic, rq, usage):
                             usage=usage, label=f"Normalisasi teknik {start // NORM_CHUNK + 1}")
         running = finalize_normalization(proposal, chunk, running)
         attached += running.pop("attached", [])
-    refresh_item_counts(running, techniques)
+    attached += refresh_item_counts(running, techniques)
     running.update({"model": MODEL, "proposed_at": datetime.now(timezone.utc).isoformat(), "added": added,
                     "attached": attached, "merged_existing": merged_existing, "review": review})
     return running

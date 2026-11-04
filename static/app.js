@@ -329,7 +329,7 @@
     if (!target || !$('#' + target)) return;
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
-    const labels = {overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Taxonomy', design:'Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
+    const labels = {overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
     $('#breadcrumb-current').textContent = labels[target] || target;
     window.scrollTo({top:0, behavior:'smooth'});
     if (target === 'articles') renderArticles();
@@ -669,9 +669,30 @@
     $('#design-basis').innerHTML = `<div class="synth-eyebrow">KEPERCAYAAN LABEL</div><h2>Didukung kutipan vs disimpulkan AI</h2><p class="taxonomy-help">Hijau = didukung kutipan yang terverifikasi di teks PDF (untuk label eksplisit seperti Case study, itu berarti penulis menyebutnya sendiri). Kuning = disimpulkan. Abu-abu = tidak dinyatakan.</p>${Object.entries(res.basis_summary).map(([k, v]) => { const t = (v.stated + v.inferred + v.not_stated) || 1; return `<div class="basis-row"><span>${esc(v.label)}</span><span class="basis-bar"><i class="b-stated" style="width:${v.stated / t * 100}%"></i><i class="b-inferred" style="width:${v.inferred / t * 100}%"></i><i class="b-none" style="width:${v.not_stated / t * 100}%"></i></span><span>${v.stated} / ${v.inferred} / ${v.not_stated}</span></div>`; }).join('')}`;
     renderNormalization(res, arts);
   }
+  // Panel langkah di atas Taksonomi Desain Riset: status dibaca dari state, bukan disimpan.
+  function renderDesignSteps() {
+    const box = $('#design-steps'); if (!box) return;
+    const included = state.articles.filter(a => a.extraction_status !== 'failed' && a.screening_decision === 'include' && a.eligibility_decision === 'include').length;
+    const topic = String((state.designUi || {}).topic || '').trim();
+    const n = normState(), unmapped = Number(((designResult && designResult.res && designResult.res.normalization_status) || {}).unmapped_count || 0);
+    const norm = n.draft ? {done: false, note: 'Draf menunggu diperiksa, lalu klik "Setujui & terapkan ke pohon".'}
+      : n.approved
+        ? {done: !unmapped, note: unmapped ? `${unmapped} teknik baru belum terpetakan. Klik "Perbarui untuk teknik baru".` : `${list(n.approved.families).length} keluarga disetujui.`}
+        : {done: false, note: 'Klik "Usulkan pengelompokan (AI)" pada panel normalisasi.'};
+    const steps = [
+      {title: 'Artikel INCLUDE', done: included > 0, note: included > 0 ? `${included} artikel siap dihitung.` : 'Belum ada. Tetapkan keputusan di tab Artikel.', go: included > 0 ? '' : 'articles'},
+      {title: 'Nama topik', done: !!topic, note: topic || 'Isi nama topik (akar pohon) pada kolom di bawah.'},
+      {title: 'Normalisasi teknik', done: norm.done, note: norm.note},
+      {title: 'Ekspor', done: false, note: 'Setelah normalisasi disetujui: unduh JSON dan laporan HTML.'},
+    ];
+    box.innerHTML = '<p class="eyebrow">LANGKAH</p><ol class="step-list">' + steps.map((s, i) =>
+      `<li class="step${s.done ? ' done' : ''}"><span class="step-mark">${s.done ? '✓' : '○'}</span><span><strong>${i + 1}. ${esc(s.title)}</strong><small>${esc(s.note)}</small>${s.go ? `<button class="text-button" type="button" data-step-go="${s.go}">Ke tab Artikel →</button>` : ''}</span></li>`).join('') + '</ol>';
+    box.querySelectorAll('[data-step-go]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.stepGo)));
+  }
   async function renderDesign() {
     const box = $('#design-tree'); if (!box) return;
     state.designUi = {topic: '', scope: 'notexcluded', ...(state.designUi || {})};
+    renderDesignSteps();
     const topicInput = $('#design-topic');
     if (document.activeElement !== topicInput) topicInput.value = state.designUi.topic;
     $('#design-scope').value = state.designUi.scope;
@@ -689,6 +710,7 @@
       if (mine !== designReq) return;
       designResult = {res, arts};
       paintDesign(res, arts);
+      renderDesignSteps();
     } catch (e) {
       if (mine === designReq) box.innerHTML = `<div class="empty-state">${esc(e.message || 'Gagal menyusun taksonomi desain riset.')}</div>`;
     }
@@ -723,6 +745,7 @@
   }
   function renderNormalization(res, arts) {
     const box = $('#norm-panel'); if (!box) return;
+    renderDesignSteps();
     const n = normState(), status = res.normalization_status || {};
     const techCount = arts.reduce((sum, a) => sum + list((a.research_design || {}).techniques).length, 0);
     if (!techCount) { box.classList.add('hidden'); return; }
@@ -918,14 +941,14 @@ footer{margin-top:40px;color:var(--dim);font-size:12px;border-top:1px solid var(
       box.innerHTML = `<div class="empty-state"><strong>Sintesis berhasil, tetapi taxonomy belum berhasil dibuat.</strong><p>${esc(s.taxonomy_error || 'Model tidak menghasilkan struktur taxonomy yang dapat dipakai.')}</p><p>Periksa apakah model AI (Ollama/DeepSeek) masih berjalan, lalu jalankan ulang sintesis untuk mencoba membuat taxonomy lagi.</p></div>`;
       return;
     }
-    if (!s || !s.taxonomy) { box.innerHTML = '<div class="empty-state">Jalankan Review Synthesis untuk menghasilkan taxonomy dari artikel yang termasuk.</div>'; return; }
+    if (!s || !s.taxonomy) { box.innerHTML = '<div class="empty-state">Jalankan Review Synthesis untuk menghasilkan peta topik dari artikel yang termasuk.</div>'; return; }
     $$('.taxonomy-tab').forEach(b => b.classList.toggle('active', b.dataset.taxonomy === activeTaxonomy));
     if (activeTaxonomy === 'hierarchical') {
       const h = s.taxonomy.hierarchical || {}; const root = h.root || {id:'root',name:'Konsep utama'}; const nodes = list(h.nodes);
       const levels = list(h.levels), cov = s.taxonomy_coverage;
       const principle = levels.length ? `<p class="taxonomy-help"><strong>Prinsip pengelompokan:</strong> ${levels.map(l=>`level ${esc(l.level)}: ${esc(l.principle)}`).join(' · ')}</p>` : '';
       const covLine = cov ? `<p class="taxonomy-help">Cakupan: ${esc(cov.covered)}/${esc(cov.total)} artikel punya tempat di hierarki${list(cov.uncovered_ids).length ? ` · belum terpetakan: ${list(cov.uncovered_ids).map(id=>esc((findArticle(id)||{}).title||id)).join('; ')}` : ''}${cov.parent_fixes ? ` · ${esc(cov.parent_fixes)} relasi induk diperbaiki otomatis` : ''}.</p>` : '';
-      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Taksonomi topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? renderHierarchySvg(root,nodes,[]) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada struktur taxonomy yang dihasilkan.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? renderHierarchySvg(root,nodes,[]) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
     } else if (activeTaxonomy === 'faceted') {
       const f=s.taxonomy.faceted||{}; const facets=list(f.facets);
       box.innerHTML = `<div class="synth-eyebrow">FACETED TAXONOMY</div><h2 class="taxonomy-title">Klasifikasi berdasarkan beberapa facet</h2><p class="taxonomy-help">Setiap kolom menunjukkan dimensi atribut yang berbeda untuk mendeskripsikan studi atau konsep.</p>${facets.length ? `<div class="facet-diagram">${facets.map((facet,i)=>`<div class="facet-column"><div class="facet-head">${esc(facet.name||'Facet '+(i+1))}</div>${list(facet.values).map(v=>`<div class="facet-value"><strong>${esc(v.name||'Kategori')}</strong><small>${esc(v.description||'')}</small><span>${list(v.article_ids).length} artikel</span></div>`).join('')}</div>`).join('')}</div>` : '<div class="empty-state">Belum ada facet yang dihasilkan. Jalankan ulang sintesis untuk membuat klasifikasi multi-dimensi.</div>'}`;

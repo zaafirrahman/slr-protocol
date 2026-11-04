@@ -205,7 +205,7 @@ agar cocok dengan riset pemodelan. Ubah `CODEBOOK_VERSION` bila arti kode beruba
 
 Prinsip: AI hanya **mengklasifikasikan satu artikel ke kode codebook** (dengan `basis` stated/inferred/not_stated dan
 bukti). Pohon **dihitung kode** oleh `build_design_taxonomy` (group-by), tanpa LLM: `POST /api/design-taxonomy`,
-tab Desain Riset. Cabang: Metodologi (Kuantitatif/Kualitatif/Campuran lalu teknik), Strategi, Teknik & prosedur,
+tab Taksonomi Desain Riset (label sidebar; id `design`). Cabang: Metodologi (Kuantitatif/Kualitatif/Campuran lalu teknik), Strategi, Teknik & prosedur,
 Fondasi & horizon waktu; plus matriks Metodologi x Strategi (sel kosong = kandidat gap) dan ringkasan
 stated/inferred/not_stated. `GET /api/codebook` memberi label untuk UI.
 
@@ -370,7 +370,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Area | Fungsi kunci |
 |---|---|
 | State & penyimpanan | `loadState`, `saveState`, `DEFAULT_STATE`, `STORE_KEY` |
-| Navigasi | `navigate(target)`, tombol `data-target`, 8 tab: overview, articles, prisma, synthesis, taxonomy, design, cooccurrence, system-map |
+| Navigasi | `navigate(target)`, tombol `data-target`, 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
 | Upload | `handleUpload`: validasi → pre-check duplikat (`sha256Hex` via `crypto.subtle`) → FormData + `job_id` → polling → merge artikel |
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
@@ -420,7 +420,9 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 
 ## 10. Verifikasi dan pengujian
 
-Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (156 pengecekan: normalisasi
+Uji asap UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah.
+
+Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (157 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
 memakai `data/pdfs` atau `SLR_PDF_DIR`. `tests/fixtures_research_design.json` berisi label buatan tangan (gold standard
 mini, bukan keluaran AI), dua entri sengaja salah untuk menguji pertahanan. Belum ada tes browser otomatis di repo.

@@ -446,6 +446,12 @@ fm = {i["canonical"]: i for i in fin_m["items"]}
 check("C: merge AI yang mencampur weighted SAA dipecah: SAA bergabung, weighted tetap sendiri",
       set(fm["Sample Average Approximation"]["variants"]) == {"Sample Average Approximation", "SAA"} and fm["weighted SAA"]["variants"] == ["weighted SAA"])
 
+ts_abbr = app.collect_techniques([mk_article("q1", ["Benders-based branch-and-cut (BBC)", "support vector machine (RBF)"])])
+fin_abbr = app.finalize_normalization({"assign": {}}, ts_abbr)
+fb = {i["canonical"]: i for i in fin_abbr["items"]}
+check("nama baku item baru tanpa singkatan kurung (BBC), ejaan asli tetap di variants; '(RBF)' bukan singkatan jadi dibiarkan",
+      "Benders-based branch-and-cut" in fb and fb["Benders-based branch-and-cut"]["variants"] == ["Benders-based branch-and-cut (BBC)"]
+      and "support vector machine (RBF)" in fb)
 print("   rute Perbarui: nama baru menempel ke item lama, AI hanya untuk sisa")
 inc_map = {"families": [{"id": "F1", "name": "Stokastik dan robust", "definition": "d"}, {"id": "F2", "name": "Sekuensial", "definition": "d"}],
            "items": [mk_item("Sample Average Approximation", "F1", ("a",)), mk_item("rolling horizon optimization", "F2", ("a",)), mk_item("Random Forest", "F2", ("a",))]}
@@ -470,7 +476,9 @@ try:
     check("hasil: SAA & rolling horizon menempel ke item lama (bukan item baru); weighted tetap item sendiri; Benders item baru",
           set(ni["Sample Average Approximation"]["variants"]) >= {"SAA"} and "rolling horizon" in ni["rolling horizon optimization"]["variants"]
           and "SAA" not in ni and "rolling horizon" not in ni and "weighted sample average approximation" in ni and "Benders decomposition" in ni and len(nn["items"]) == 5)
-    check("laporan: 2 nama ditempel (1 otomatis, 1 AI); item yang tersentuh ditandai", {(a["name"], a["how"]) for a in nn["attached"]} == {("rolling horizon", "otomatis"), ("SAA", "AI")} and ni["rolling horizon optimization"].get("touched"))
+    check("laporan: semua yang menempel tercatat (otomatis, AI, dan ejaan lewat kunci sama) dan item yang tersentuh ditandai",
+          {(a["name"], a["how"]) for a in nn["attached"]} == {("rolling horizon", "otomatis"), ("SAA", "AI"), ("random forest (RF)", "ejaan")}
+          and ni["rolling horizon optimization"].get("touched") and ni["Random Forest"].get("touched"))
     check("hitungan artikel dihitung ulang dari cakupan saat ini dan ejaan baru ('random forest (RF)') tampak sebagai varian item lama", ni["Random Forest"]["article_ids"] == ["n1"] and ni["Random Forest"]["count"] == 1 and "random forest (RF)" in ni["Random Forest"]["variants"], str(ni["Random Forest"]))
     check("keluarga lama tidak berubah dan masukan tidak dimutasi", nn["families"] == inc_map["families"] and json.dumps(inc_map, sort_keys=True) == inc_before)
     calls2.clear()
