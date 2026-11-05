@@ -452,6 +452,10 @@ fb = {i["canonical"]: i for i in fin_abbr["items"]}
 check("nama baku item baru tanpa singkatan kurung (BBC), ejaan asli tetap di variants; '(RBF)' bukan singkatan jadi dibiarkan",
       "Benders-based branch-and-cut" in fb and fb["Benders-based branch-and-cut"]["variants"] == ["Benders-based branch-and-cut (BBC)"]
       and "support vector machine (RBF)" in fb)
+long_name = "Model prediktif berbasis pembelajaran mesin (Jaringan Syaraf Tiruan dan Deep Learning)"
+ts_long = app.collect_techniques([mk_article("lg1", ["LSTM"])])
+fin_long = app.finalize_normalization({"families": [{"id": "F1", "name": long_name, "definition": "d"}], "assign": {"LSTM": "F1"}}, ts_long)
+check("nama keluarga panjang (>60 karakter) tidak terpotong diam-diam", fin_long["families"][0]["name"] == long_name and len(long_name) > 60, fin_long["families"][0]["name"])
 print("   rute Perbarui: nama baru menempel ke item lama, AI hanya untuk sisa")
 inc_map = {"families": [{"id": "F1", "name": "Stokastik dan robust", "definition": "d"}, {"id": "F2", "name": "Sekuensial", "definition": "d"}],
            "items": [mk_item("Sample Average Approximation", "F1", ("a",)), mk_item("rolling horizon optimization", "F2", ("a",)), mk_item("Random Forest", "F2", ("a",))]}

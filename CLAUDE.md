@@ -265,9 +265,18 @@ Tombol **Ekspor laporan (HTML)** di tab Desain Riset (`buildDesignReport()` di `
 dibaca, dibagikan, dan dicetak ke PDF.
 
 - Satu berkas mandiri: CSS dan skrip kecil inline, tanpa sumber daya luar. Meta CSP (`default-src 'none'`) menutup permintaan jaringan.
-- Isi: konfigurasi review, cara membaca (legenda, batas 8 teknik), pohon yang bisa dilipat dengan definisi dan nomor referensi,
-  matriks metodologi x strategi, normalisasi teknik (keluarga, penggabungan, yang dibuang), kepercayaan label, label per artikel,
-  daftar referensi. Tema terang/gelap mengikuti sistem; `@media print` memaksa terang, membuka semua lipatan, dan membedakan
+- Dua mode dalam SATU berkas (atribut `data-view` pada `<html>`, tombol di bilah atas): NASKAH (acuan menulis, PDF bersih tanpa hal teknis
+  tool) dan LENGKAP (audit untuk dicek manusia). Bagian naskah bernomor 1-9: topik dan fokus, metode penyusunan (dibaca dari config
+  Ikhtisar dan dihitung dari data: hasil seleksi, sebaran tahun), pohon research onion, definisi konsep (kode hierarkis), matriks
+  metodologi x strategi, keluarga teknik + artikel, posisi dalam onion (kalimat otomatis, cabang kosong disebut), temuan dan celah
+  (dari Review Synthesis; ID artikel mentah diganti nomor referensi, kode codebook diganti label), daftar pustaka. Lampiran A-F
+  (konfigurasi, cara membaca, penggabungan/pembuangan nama, kepercayaan label, label per artikel, status verifikasi) ditandai
+  `.audit` dan disembunyikan di mode naskah. Tombol: Pratinjau naskah, Tampilan lengkap, Cetak naskah, Cetak lengkap.
+- Jangan "mencuci" tebakan AI: banner DRAFT (tampil di KEDUA mode) menyebut artikel yang belum diverifikasi, pemetaan teknik yang belum
+  disetujui atau masih draf, dan keluarga teknik tanpa definisi. Verifikasi = kotak "Sudah saya cek" di detail artikel
+  (`owner_verified`, `owner_verified_at` pada artikel; ikut ekspor/impor proyek). Daftar pustaka membawa catatan bahwa nama jurnal,
+  volume, dan halaman belum diekstrak (hanya judul, penulis, tahun, DOI); pelengkapan dari DOI (Crossref) belum dibuat.
+- Tema terang/gelap mengikuti sistem;  `@media print` memaksa terang, membuka semua lipatan, dan membedakan
   batang proporsi dengan tingkat abu-abu.
 - Keamanan: semua teks dari PDF/AI di-escape; DOI hanya jadi tautan bila cocok pola DOI ketat; data JSON ditanam di
   `<script type=\"application/json\" id=\"slr-data\">` dengan `< > & U+2028 U+2029` di-escape agar tidak bisa menutup elemen.
@@ -420,9 +429,9 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 
 ## 10. Verifikasi dan pengujian
 
-Uji asap UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah.
+Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (32 pengecekan pada data nyata).
 
-Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (157 pengecekan: normalisasi
+Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
 memakai `data/pdfs` atau `SLR_PDF_DIR`. `tests/fixtures_research_design.json` berisi label buatan tangan (gold standard
 mini, bukan keluaran AI), dua entri sengaja salah untuk menguji pertahanan. Belum ada tes browser otomatis di repo.

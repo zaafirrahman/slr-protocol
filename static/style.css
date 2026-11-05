@@ -312,3 +312,7 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 .step strong{display:block;font-size:12px;color:var(--bright)}
 .step small{display:block;font-size:11px;line-height:1.45;color:var(--dim);margin-top:3px}
 .step .text-button{margin-top:4px;padding:0}
+
+/* Verifikasi artikel */
+.verify-box{display:flex;gap:10px;align-items:center;margin:12px 0;padding:9px 12px;border:1px solid var(--line);cursor:pointer}
+.verified-mark{display:inline-block;margin-left:8px;font-size:11px;border:1px solid var(--line);padding:0 6px;color:var(--bright)}

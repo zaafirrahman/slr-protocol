@@ -1597,7 +1597,7 @@ def finalize_normalization(proposal, techniques, running=None):
     for fam in (proposal.get("families") if isinstance(proposal.get("families"), list) else []):
         if not isinstance(fam, dict):
             continue
-        name = str(fam.get("name") or "").strip()[:60]
+        name = str(fam.get("name") or "").strip()[:120]
         if not name:
             continue
         fam_id = name_to_id.get(name.lower())
@@ -1770,10 +1770,16 @@ def build_design_taxonomy(articles, topic="", normalization=None):
 
     # --- Cabang 4: Fondasi (philosophy, approach, time horizon) ---
     fond_children = []
+    # Definisi baku lapisan luar research onion (Saunders dkk.), supaya tabel definisi di laporan tidak berlubang.
+    foundation_def = {
+        "philosophy": "Asumsi filosofis peneliti tentang hakikat realitas dan pengetahuan (mis. positivisme, interpretivisme, pragmatisme).",
+        "approach": "Cara penelitian berhubungan dengan teori: deduktif (menguji teori atau model yang sudah ada), induktif (membangun teori dari data), atau abduktif (bolak-balik di antara keduanya).",
+        "time_horizon": "Rentang waktu penelitian: cross-sectional (satu titik waktu) atau longitudinal (pengamatan berulang atau deret waktu).",
+    }
     for gid, field, label in (("f-phil", "philosophy", "Philosophy"), ("f-appr", "approach", "Approach to theory development"),
                               ("f-time", "time_horizon", "Time horizon")):
         by_value, none_ids = _group_by_value(usable, field)
-        fond_children.append(_node(gid, label, "group", "", all_ids, children=_value_nodes(gid, field, by_value, none_ids)))
+        fond_children.append(_node(gid, label, "group", foundation_def[field], all_ids, children=_value_nodes(gid, field, by_value, none_ids)))
     fondasi = _node(
         "fondasi", "Fondasi & horizon waktu", "branch",
         "Lapisan luar research onion. Sering tidak dinyatakan pada artikel teknik, jadi banyak bernilai 'inferred' atau 'tidak dinyatakan'.",
