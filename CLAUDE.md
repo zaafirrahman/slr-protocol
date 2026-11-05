@@ -271,7 +271,7 @@ dibaca, dibagikan, dan dicetak ke PDF.
   metodologi x strategi, keluarga teknik + artikel, posisi dalam onion (kalimat otomatis, cabang kosong disebut), temuan dan celah
   (dari Review Synthesis; ID artikel mentah diganti nomor referensi, kode codebook diganti label), daftar pustaka. Lampiran A-F
   (konfigurasi, cara membaca, penggabungan/pembuangan nama, kepercayaan label, label per artikel, status verifikasi) ditandai
-  `.audit` dan disembunyikan di mode naskah. Tombol: Pratinjau naskah, Tampilan lengkap, Cetak naskah, Cetak lengkap.
+  `.audit` dan disembunyikan di mode naskah. Tombol: Pratinjau naskah, Tampilan lengkap, Panduan kerangka, Cetak naskah, Cetak lengkap. Tampilan ketiga (`data-view="panduan"`, bagian `.guide`, menyembunyikan yang lain) berisi panduan kerangka dokumen: peta bab dengan status (salin/tulis ulang/tulis sendiri), pertanyaan pemandu per bab dengan contoh yang dihitung dari data proyek, alur kerja, catatan format ITB (dengan peringatan untuk diverifikasi ke template TMI), dan daftar periksa. `.refnote` di mode naskah/lengkap menegaskan bahwa laporan adalah acuan, bukan naskah final.
 - Jangan "mencuci" tebakan AI: banner DRAFT (tampil di KEDUA mode) menyebut artikel yang belum diverifikasi, pemetaan teknik yang belum
   disetujui atau masih draf, dan keluarga teknik tanpa definisi. Verifikasi = kotak "Sudah saya cek" di detail artikel
   (`owner_verified`, `owner_verified_at` pada artikel; ikut ekspor/impor proyek). Daftar pustaka membawa catatan bahwa nama jurnal,
@@ -429,7 +429,7 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 
 ## 10. Verifikasi dan pengujian
 
-Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (32 pengecekan pada data nyata).
+Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (35-38 pengecekan pada data nyata, ekspektasinya dihitung dari state proyek, bukan diasumsikan).
 
 Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF

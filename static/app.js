@@ -847,7 +847,13 @@ footer{margin-top:40px;color:var(--dim);font-size:12px;border-top:1px solid var(
 .toolbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;padding:8px 0;margin-bottom:6px;background:var(--bg);border-bottom:1px solid var(--line)}button:disabled{opacity:.55;cursor:default}
 .banner{border:1px dashed var(--warn);color:var(--warn);padding:8px 14px;margin:14px 0;font-size:12.5px}.banner ul{margin:6px 0 0;padding-left:18px;border-left:0;list-style:disc;color:var(--fg)}
 .todo{color:var(--warn);font-size:12.5px}ul.plain{list-style:disc;padding-left:22px;border-left:0}ul.plain li{margin:6px 0}
-html[data-view="naskah"] .audit,html[data-view="naskah"] .tag,html[data-view="naskah"] .inf{display:none}`;
+html[data-view="naskah"] .audit,html[data-view="naskah"] .tag,html[data-view="naskah"] .inf{display:none}
+.guide{display:none}html[data-view="panduan"] .guide{display:block}html[data-view="panduan"] main>*:not(.toolbar):not(.guide){display:none}
+.guide h4{margin:14px 0 4px;font-size:14px}.guide .card{margin:10px 0}.guide ul.plain,.guide ol{margin:6px 0}.guide ol{padding-left:22px}.guide ol li{margin:5px 0}
+.chip{display:inline-block;font-size:11px;border:1px solid var(--line);padding:0 7px;margin-right:4px;white-space:nowrap}.chip.s{color:var(--ok);border-color:var(--ok)}.chip.r{color:var(--warn);border-color:var(--warn)}.chip.t{color:var(--bright);border-color:var(--bright)}
+.eg{border-left:3px solid var(--line);padding:6px 12px;margin:8px 0;font-size:13px;color:var(--dim)}.eg b{color:var(--fg)}.eg ul{margin:4px 0;padding-left:20px;border-left:0}
+ul.chk{list-style:none;padding-left:0;border-left:0}ul.chk li{margin:5px 0}ul.chk li:before{content:"\\2610  "}
+.refnote{border:1px solid var(--line);padding:7px 14px;margin:10px 0;font-size:12.5px;color:var(--dim)}`;
   function rptRefs(ids) {
     const nums = list(ids).map(id => designRefs[id]).filter(Boolean).sort((a, b) => a - b);
     return nums.length ? `<span class="refs">[${nums.join(', ')}]</span>` : '';
@@ -956,14 +962,122 @@ html[data-view="naskah"] .audit,html[data-view="naskah"] .tag,html[data-view="na
         + (list(syn.research_gaps).length ? `<h3>Celah penelitian</h3><ul class="plain">${list(syn.research_gaps).map(g => `<li><b>${esc(g.gap)}</b>${rptRefs(g.article_ids)}${g.evidence ? ' ' + rptProse(g.evidence) : ''}${g.suggested_next_step ? ` <i>Langkah lanjut: ${rptProse(g.suggested_next_step)}</i>` : ''}</li>`).join('')}</ul>` : '');
     } else synSection = '<p class="todo">Belum ada ringkasan: jalankan Review Synthesis di tab SLR lanjutan.</p>';
     const verRows = arts.map((a, i) => `<tr><td class="n">${i + 1}</td><td>${esc(a.title || '(tanpa judul)')} <span class="dim">(${esc(a.year || 'n.d.')})</span></td><td>${a.owner_verified ? '✓ diverifikasi' + (a.owner_verified_at ? ' ' + esc(String(a.owner_verified_at).slice(0, 10)) : '') : '<span class="inf">belum</span>'}</td></tr>`).join('');
+    // ---- panduan kerangka: contoh diambil dari data proyek ini ----
+    const tgS = '<span class="chip s">Salin dan rapikan</span>', tgR = '<span class="chip r">Tulis ulang</span>', tgW = '<span class="chip t">Tulis sendiri</span>';
+    const eg = h => `<div class="eg"><b>Contoh dari proyekmu.</b> ${h}</div>`;
+    const brBy = pfx => list(res.tree.children).find(b => String(b.name).startsWith(pfx)) || {children: []};
+    const grpBy = (b, pfx) => list(b.children).find(c => String(c.name).startsWith(pfx)) || {children: []};
+    const valsIn = n => { const out = []; (function w(x) { list(x.children).forEach(c => { if (c.kind === 'value') out.push(c); else if (c.kind !== 'technique' && c.kind !== 'family') w(c); }); })(n); return out; };
+    const fmtV = arr => arr.length ? arr.map(v => `${esc(v.name)} (${esc(v.count)})`).join('; ') : 'belum ada';
+    const bMeto = brBy('Metodologi'), bStr = brBy('Strategi'), bTek = brBy('Teknik'), bFon = brBy('Fondasi');
+    const metoLine = list(bMeto.children).map(c => `${esc(c.name)} (${esc(c.count)})`).join('; ') || 'belum ada';
+    const emptyMeto = list(bMeto.children).filter(c => c.count === 0).map(c => esc(c.name)).join(', ');
+    const strV = valsIn(bStr), strFilled = strV.filter(v => v.count > 0);
+    const dataFilled = valsIn(grpBy(bTek, 'Pengumpulan')).filter(v => v.count > 0), anaFilled = valsIn(grpBy(bTek, 'Analisis')).filter(v => v.count > 0);
+    const phFilled = valsIn(grpBy(bFon, 'Philosophy')).filter(v => v.count > 0), tmFilled = valsIn(grpBy(bFon, 'Time')).filter(v => v.count > 0);
+    const famSorted = treeFams.slice().sort((a, b) => b.count - a.count), famFmt = f => `${esc(f.name)} (${esc(f.count)} artikel)`;
+    const infN = sum('inferred'), totN = sum('stated') + sum('inferred') + sum('not_stated');
+    const gapItems = list(syn && syn.research_gaps).slice(0, 4).map(g => `<li>${rptProse(g.gap)}</li>`).join('');
+    const mapRows = [
+      ['Halaman judul, abstrak (bila diminta)', 'Judul tugas, identitas, ringkasan singkat.', '—', tgW],
+      ['I.1 Latar belakang dan alasan memilih topik', 'Minatmu pada topik, masalah nyata di baliknya, mengapa perlu taksonomi.', 'Bagian 1 (hanya nama topik)', tgW],
+      ['I.2 Fokus dan pertanyaan penelitian', 'Pertanyaan penelitian dan batas fokus.', 'Bagian 1', tgR],
+      ['I.3 Tujuan', 'Taksonomi ini disusun untuk apa.', '—', tgW],
+      ['II.1 Sumber dan pencarian', 'Database, tanggal, string pencarian.', 'Bagian 2', tgS],
+      ['II.2 Kriteria dan seleksi', 'Kriteria inklusi dan eksklusi, alur jumlah artikel.', 'Bagian 2', tgS],
+      ['II.3 Metode klasifikasi', 'Mengapa research onion dan top-down.', 'Bagian 2', tgR],
+      ['II.4 Ekstraksi dan verifikasi', 'Label dibantu model bahasa, diverifikasi peneliti.', 'Bagian 2', tgR],
+      ['III.1 Hierarki taksonomi', 'Pohon topik, metodologi dan strategi, teknik, fondasi.', 'Bagian 3 (Gambar III.1)', tgS],
+      ['III.2 Definisi konsep dan subkonsep', 'Tiap konsep didefinisikan jelas.', 'Bagian 4 (Tabel III.1)', tgS],
+      ['III.3 Matriks metodologi dan strategi', 'Sebaran artikel per sel.', 'Bagian 5 (Tabel III.2)', tgS],
+      ['III.4 Keluarga teknik dan artikelnya', 'Pengelompokan teknik beserta definisi.', 'Bagian 6 (Tabel III.3)', tgS],
+      ['III.5 Posisi dalam research onion', 'Ringkasan tiap lapisan dalam paragraf.', 'Bagian 7', tgR],
+      ['IV. Pembahasan', 'Makna temuan, pola, keterbatasan, celah.', 'Hanya angka pendukung', tgW],
+      ['V. Kesimpulan dan saran', 'Jawaban pertanyaan penelitian, temuan utama, langkah lanjut.', '—', tgW],
+      ['Daftar pustaka', 'Semua rujukan yang dikutip di teks.', 'Bagian 9', tgR],
+      ['Lampiran', 'Label per artikel (opsional).', 'Lampiran E (mode lengkap)', tgS],
+    ].map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('');
+    const refnote = '<p class="refnote">Dokumen ini adalah acuan data dan kerangka untuk menulis, bukan naskah final. Susun ulang sesuai format yang diminta dan tulis pembahasan sendiri; panduan lengkapnya ada di laporan HTML, tampilan Panduan kerangka.</p>';
+    const guide = `<h2>Panduan kerangka: dari laporan ini ke naskah tugasmu</h2>
+<div class="card"><p><b>Laporan ini adalah acuan, bukan naskah tugas.</b> Mode naskah berisi data, tabel, dan kerangka yang dihitung dari proyekmu. Yang dikumpulkan harus naskahmu sendiri: disusun ulang mengikuti format thesis TMI, dengan alasan memilih topik, pembahasan, dan kesimpulan yang kamu tulis sendiri. Contoh di panduan ini diambil dari proyekmu: topik <b>${esc(topic)}</b>, ${esc(arts.length)} artikel.</p>
+<p>Slide tugas meminta tiga hal: (a) topik dan fokus, (b) konsep dan subkonsep yang didefinisikan, (c) pengelompokan hierarkis (top-down atau bottom-up) yang logis. Bab I dan II menjawab (a), Bab III menjawab (b) dan (c), Bab IV dan V sepenuhnya milikmu.</p>
+<p>Penanda: ${tgS} bahan siap, tinggal dirapikan ke format; ${tgR} bahan ada tetapi kalimatnya harus kamu tulis ulang; ${tgW} tidak ada di laporan, harus kamu tulis.</p></div>
+<h3>A. Peta kerangka dokumen</h3><div class="wrap"><table><thead><tr><th>Bab</th><th>Yang ditulis</th><th>Bahan di laporan</th><th>Status</th></tr></thead><tbody>${mapRows}</tbody></table></div>
+<h3>B. Bab per bab</h3>
+<div class="card"><h4>Bab I. Pendahuluan ${tgW}</h4><ul class="plain">
+<li><b>Alasan memilih topik.</b> Tulis dari minatmu: apa yang membuatmu tertarik dan masalah nyata apa di baliknya. Pertanyaan pemandu: keputusan apa yang ingin dijawab bidang ini? Mengapa perlu dipetakan, bukan cukup membaca satu dua artikel?</li>
+<li><b>Fokus dan pertanyaan penelitian.</b> Ambil pertanyaan dari Bagian 1, lalu jelaskan batasnya: apa yang masuk dan tidak masuk fokusmu.</li>
+<li><b>Tujuan.</b> Satu paragraf: taksonomi ini disusun untuk apa, misalnya memetakan desain riset sebagai dasar tahap SLR.</li></ul>
+${eg(`topik ${esc(topic)}. Pertanyaan penelitian di config: ${orTodo(meta.research_question)}`)}</div>
+<div class="card"><h4>Bab II. Metode penyusunan taksonomi ${tgS} ${tgR}</h4><ul class="plain">
+<li><b>Sumber dan pencarian.</b> Tulis dalam kalimat: database, tanggal, string pencarian, apa yang disaring. Bahan: Bagian 2.</li>
+<li><b>Kriteria dan seleksi.</b> Sebut kriteria inklusi dan eksklusi, lalu alur jumlahnya. Tulis apa adanya: angka di laporan dihitung dari PDF yang kamu unggah, bukan dari jumlah hasil pencarian database, jadi jangan menulis seolah ada alur PRISMA lengkap.</li>
+<li><b>Metode klasifikasi.</b> Jelaskan mengapa memakai research onion (Saunders dkk., 2019) dan mengapa top-down. Alasan ini harus datang darimu.</li>
+<li><b>Ekstraksi dan verifikasi.</b> Sebut bahwa label diekstrak dengan bantuan model bahasa dan berapa artikel yang kamu verifikasi terhadap PDF. Terbuka soal ini melindungimu.</li></ul>
+${eg(`${esc(arts.length)} artikel dalam cakupan laporan dari ${esc(meta.source_name || 'sumber yang belum diisi')}; ${esc(nInc)} lolos screening dan full-text; ${esc(exScreen)} dieksklusi saat screening; ${esc(verifiedN)} dari ${esc(arts.length)} artikel sudah kamu verifikasi.`)}</div>
+<div class="card"><h4>Bab III. Taksonomi penelitian ${tgS} ${tgR}</h4><ul class="plain">
+<li><b>Gambar III.1 (pohon, Bagian 3).</b> Buat ulang di Word atau draw.io dari tombol "Salin outline teks". Bila terlalu besar, gambar sampai level keluarga teknik dan taruh nama tekniknya di Tabel III.3.</li>
+<li><b>Tabel III.1 (definisi, Bagian 4).</b> Salin dan rapikan. Definisi dari Saunders dkk. sebaiknya kamu parafrasa atau kutip dengan rujukan.</li>
+<li><b>Tabel III.2 (matriks, Bagian 5) dan Tabel III.3 (keluarga teknik, Bagian 6).</b> Salin, lalu periksa angkanya terhadap laporan.</li>
+<li><b>Posisi dalam onion (Bagian 7).</b> Ubah daftar menjadi paragraf, satu lapisan per kalimat atau dua.</li>
+<li><b>Setiap gambar dan tabel:</b> judul bernomor, dirujuk di teks, satu kalimat pengantar dan satu kalimat interpretasi.</li></ul>
+${eg(`posisi dalam onion pada proyekmu:<ul class="plain">${posItems}</ul>`)}</div>
+<div class="card"><h4>Bab IV. Pembahasan ${tgW} (seluruhnya milikmu)</h4>
+<p>Pola tiap paragraf: <b>temuan</b> (angka dari tabelmu), lalu <b>makna</b>, lalu <b>pembanding atau rujukan</b> [artikel], lalu <b>batasnya</b>. Pertanyaan pemandu beserta data dari proyekmu:</p>
+<ol>
+<li><b>Metodologi.</b> Mengapa distribusinya begini: sifat bidang atau cara kamu memilih artikel? Apa arti cabang yang kosong bagi klaim taksonomimu?${eg(`${metoLine}.${emptyMeto ? ` Cabang tanpa artikel: ${emptyMeto}.` : ''}`)}</li>
+<li><b>Strategi.</b> Satu artikel boleh punya beberapa strategi: mana yang tumpang tindih dan mengapa? Apa artinya bagi bukti dari lapangan?${eg(`${fmtV(strFilled)}.`)}</li>
+<li><b>Data dan analisis.</b> Seberapa bergantung bidang ini pada data sekunder atau sintetis, dan apa risikonya?${eg(`pengumpulan data: ${fmtV(dataFilled)}. Analisis: ${fmtV(anaFilled)}.`)}</li>
+<li><b>Keluarga teknik.</b> Teknik mana yang menjadi inti metodologi dan mana yang baru muncul? Bagaimana hubungan antar keluarga, misalnya prediksi yang menyuplai optimasi?${eg(`terpadat: ${famSorted.slice(0, 3).map(famFmt).join('; ') || 'belum ada'}. Tertipis: ${famSorted.slice(-3).reverse().map(famFmt).join('; ') || 'belum ada'}.`)}</li>
+<li><b>Fondasi.</b> Banyak artikel teknik tidak menyatakan filosofi atau pendekatan teorinya. Jangan mengarang: sebut sebagai keterbatasan, lalu jelaskan apa dampaknya pada lapisan luar onion.${eg(`Philosophy: ${fmtV(phFilled)}. Time horizon: ${fmtV(tmFilled)}.`)}</li>
+<li><b>Keterbatasan.</b> Apa yang tidak bisa disimpulkan dari taksonomi ini? Pikirkan jumlah artikel, satu sumber, label yang disimpulkan AI, dan satu artikel yang masuk banyak cabang.${eg(`${esc(arts.length)} artikel; ${esc(infN)} dari ${esc(totN)} label adalah kesimpulan AI, bukan pernyataan penulis; ${esc(verifiedN)} artikel sudah kamu verifikasi.`)}</li>
+<li><b>Celah dan langkah lanjut.</b> Pilih dua atau tiga celah dan buktikan dari tabelmu sendiri, bukan dari kalimat AI. Hubungkan ke tahap SLR.${gapItems ? eg(`celah dari Review Synthesis (bahan berpikir, bukan untuk disalin):<ul class="plain">${gapItems}</ul>`) : eg('belum ada hasil Review Synthesis. Jalankan dulu bila ingin memakainya sebagai bahan.')}</li></ol>
+<p><b>Hindari:</b> menyalin Bagian 8 apa adanya; menulis hubungan sebab-akibat dari data yang hanya deskriptif; menggeneralisasi seluruh bidang dari ${esc(arts.length)} artikel; menyebut proses PRISMA penuh bila tidak dijalankan.</p></div>
+<div class="card"><h4>Bab V. Kesimpulan dan saran ${tgW}</h4><ul class="plain">
+<li>Jawab pertanyaan penelitian dalam beberapa kalimat, tanpa angka baru.</li>
+<li>Rangkum tiga temuan utama dari Bab IV.</li>
+<li>Saran: langkah berikutnya, yaitu SLR formal sesuai arahan dosen, dan apa yang ingin kamu periksa lebih lanjut.</li></ul></div>
+<div class="card"><h4>Daftar pustaka ${tgR}</h4><ul class="plain">
+<li>Nomor [n] di laporan hanya penomoran internal laporan. Di naskah, ganti dengan gaya sitasi yang diminta template.</li>
+<li>Lengkapi nama jurnal, volume, dan halaman dari DOI. Laporan hanya memuat penulis, tahun, judul, dan DOI.</li>
+<li>Pastikan setiap rujukan di teks ada di daftar pustaka, dan sebaliknya.</li></ul></div>
+<h3>C. Alur kerja menuju dokumen akhir</h3>
+<div class="card"><ol>
+<li>Pastikan banner DRAFT tidak muncul: verifikasi semua artikel, setujui pemetaan teknik, isi definisi yang kosong.</li>
+<li>Periksa Ikhtisar (tanggal, query, kriteria, pertanyaan penelitian), lalu ekspor ulang laporan ini.</li>
+<li>Cetak naskah (PDF bersih) sebagai acuan dan baca sampai habis.</li>
+<li>Siapkan dokumen Word dengan struktur bab pada Peta kerangka, memakai Styles.</li>
+<li>Salin Tabel III.1 sampai III.3 dan buat Gambar III.1.</li>
+<li>Tulis Bab I dan II dengan kata sendiri memakai bahan Bagian 1 dan 2.</li>
+<li>Tulis Bab IV dan V memakai pertanyaan pemandu di atas.</li>
+<li>Lengkapi daftar pustaka dan ganti [n] dengan gaya sitasi.</li>
+<li>Baca ulang: setiap angka di naskahmu harus bisa ditemukan di laporan, dan setiap label yang kamu bahas sudah kamu cek di PDF artikelnya.</li>
+<li>Cek aturan dosen soal penggunaan AI, lalu kumpulkan hardcopy dan softcopy sesuai slide.</li></ol></div>
+<h3>D. Catatan format</h3>
+<div class="card"><ul class="plain">
+<li>Slide tugas meminta format penulisan thesis TMI. Template prodi menang bila berbeda dari catatan ini.</li>
+<li>Rujukan yang kutemukan, yaitu Petunjuk Teknis Penulisan Tesis Magister ITB Sekolah Pascasarjana (2017, revisi 2019): Times New Roman 12, rata kiri-kanan, spasi 1,5; judul bab di tengah, tebal ukuran 14; judul subbab tebal ukuran 12; setiap bab dimulai di halaman baru.</li>
+<li>Gambar, tabel, dan rumus bernomor dua angka: angka Romawi untuk bab dan angka Arab untuk urutan di bab itu (Gambar III.1, Tabel III.2). Header tabel diulang bila tabel pindah halaman, gambar tidak boleh melewati margin.</li>
+<li>Daftar pustaka memakai gaya CSL ITB Sekolah Pascasarjana dengan baris kedua menjorok. Margin dari diagram contoh tampaknya kiri 4 cm dan sisi lain 3 cm; periksa langsung ke dokumen aslinya karena hasil ekstraksinya tidak rapi dan mungkin sudah ada edisi baru.</li></ul></div>
+<h3>E. Daftar periksa sebelum menyerahkan</h3>
+<div class="card"><ul class="chk">
+<li>Bab I, IV, dan V ditulis dengan kata sendiri.</li>
+<li>Tidak ada kalimat AI yang disalin apa adanya, termasuk Bagian 8.</li>
+<li>Setiap angka dan label yang dikutip sudah dicek terhadap laporan dan PDF artikel.</li>
+<li>Semua gambar dan tabel bernomor, berjudul, dan dirujuk di teks.</li>
+<li>Rujukan [n] sudah diganti gaya sitasi template, dan daftar pustaka lengkap.</li>
+<li>Penggunaan bantuan AI disebut di metode dan sesuai aturan dosen.</li>
+<li>Format mengikuti template thesis TMI.</li></ul></div>`;
     const data = {generated_at: when.toISOString(), topic, scope: ui.scope, codebook_version: res.codebook_version, review: meta, design: res, normalization: approved || null,
       articles: arts.map((a, i) => ({n: i + 1, id: a.id, title: a.title, year: a.year, doi: a.doi, authors: a.authors, verified: !!a.owner_verified}))};
     const dataJson = JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
     return `<!doctype html><html lang="id" data-view="lengkap"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"><title>Taksonomi desain riset: ${esc(topic)}</title><style>${REPORT_CSS}</style></head><body><main>
-<div class="toolbar noprint"><button id="v-naskah" type="button">Pratinjau naskah</button><button id="v-lengkap" type="button">Tampilan lengkap</button><button id="p-naskah" type="button">Cetak naskah (PDF bersih)</button><button id="p-lengkap" type="button">Cetak lengkap (audit)</button></div>
+<div class="toolbar noprint"><button id="v-naskah" type="button">Pratinjau naskah</button><button id="v-lengkap" type="button">Tampilan lengkap</button><button id="v-panduan" type="button">Panduan kerangka</button><button id="p-naskah" type="button">Cetak naskah (PDF bersih)</button><button id="p-lengkap" type="button">Cetak lengkap (audit)</button></div>
+<section class="guide" id="panduan">${guide}</section>
 <p class="eyebrow audit">Laporan taksonomi desain riset · SLR Protocol</p><h1>${esc(topic)}</h1>
 <p class="meta audit">Dibuat ${esc(whenText)} · kerangka research onion (Saunders dkk., 2019) · codebook ${esc(res.codebook_version)} · cakupan: ${esc(SCOPE_LABEL[ui.scope] || ui.scope || '-')}</p>
 ${banner}
+${refnote}
 <div class="stats audit"><div class="stat"><b>${esc(res.n_with_design)}</b><span>artikel dianalisis</span></div><div class="stat"><b>${esc(techNames.size)}</b><span>teknik baku</span></div><div class="stat"><b>${esc((res.normalization_status || {}).families || 0)}</b><span>keluarga teknik</span></div><div class="stat"><b>${esc(sum('inferred'))}</b><span>label disimpulkan AI (dari ${esc(sum('stated') + sum('inferred') + sum('not_stated'))})</span></div></div>
 <h2>1. Topik dan fokus penelitian${T('naskah')}</h2><div class="card"><dl><dt>Topik utama</dt><dd>${esc(topic)}</dd><dt>Pertanyaan penelitian</dt><dd>${orTodo(meta.research_question)}</dd></dl></div>
 <h2>2. Metode penyusunan taksonomi${T('naskah')}</h2><div class="card"><dl>${metodeDl}</dl></div>
@@ -982,7 +1096,7 @@ ${banner}
 <section class="audit"><h2>Lampiran F. Status verifikasi artikel${T('audit')}</h2><div class="wrap"><table><thead><tr><th class="n">No</th><th>Artikel</th><th>Status</th></tr></thead><tbody>${verRows}</tbody></table></div></section>
 <footer class="audit">Berkas ini adalah potret data pada waktu pembuatan; buat ulang bila data berubah. Data JSON ditanam di bawah (elemen <code>#slr-data</code>) sebagai cadangan.</footer></main>
 <script type="application/json" id="slr-data">${dataJson}</script>
-<script>(function(){var d=document,h=d.documentElement,prev=null;function all(o){d.querySelectorAll('details').forEach(function(x){x.open=o})}function view(v){h.setAttribute('data-view',v);var a=d.getElementById('v-naskah'),b=d.getElementById('v-lengkap');if(a)a.disabled=(v==='naskah');if(b)b.disabled=(v==='lengkap')}function pr(v){prev=h.getAttribute('data-view');view(v);setTimeout(function(){window.print()},60)}function el(i,f){var x=d.getElementById(i);if(x)x.onclick=f}el('open-all',function(){all(true)});el('close-all',function(){all(false)});el('v-naskah',function(){view('naskah')});el('v-lengkap',function(){view('lengkap')});el('p-naskah',function(){pr('naskah')});el('p-lengkap',function(){pr('lengkap')});window.addEventListener('beforeprint',function(){all(true)});window.addEventListener('afterprint',function(){if(prev){view(prev);prev=null}});view('lengkap')})();</script></body></html>`;
+<script>(function(){var d=document,h=d.documentElement,prev=null;function all(o){d.querySelectorAll('details').forEach(function(x){x.open=o})}function view(v){h.setAttribute('data-view',v);['naskah','lengkap','panduan'].forEach(function(k){var b=d.getElementById('v-'+k);if(b)b.disabled=(v===k)})}function pr(v){prev=h.getAttribute('data-view');view(v);setTimeout(function(){window.print()},60)}function el(i,f){var x=d.getElementById(i);if(x)x.onclick=f}el('open-all',function(){all(true)});el('close-all',function(){all(false)});el('v-naskah',function(){view('naskah')});el('v-lengkap',function(){view('lengkap')});el('v-panduan',function(){view('panduan')});el('p-naskah',function(){pr('naskah')});el('p-lengkap',function(){pr('lengkap')});window.addEventListener('beforeprint',function(){all(true)});window.addEventListener('afterprint',function(){if(prev){view(prev);prev=null}});view('lengkap')})();</script></body></html>`;
   }
   function downloadDesignReport() {
     if (!designResult) { toast('Belum ada pohon untuk diekspor.', 'error'); return; }
