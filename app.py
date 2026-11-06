@@ -120,7 +120,7 @@ KEEP_SERVER_PDFS = _env_bool("KEEP_SERVER_PDFS", False)  # salin PDF asli ke dat
 KEEP_SERVER_JSON = _env_bool("KEEP_SERVER_JSON", False)  # salin hasil ekstraksi ke data/json (default mati)
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILES_PER_BATCH * MAX_FILE_BYTES + 5 * 1024 * 1024
 
-if IS_API and not APP_PASSWORD:
+if IS_API and not APP_PASSWORD and not user_auth.enabled():  # mode terkelola: key admin tidak ada di laptop ini
     print(
         "PERINGATAN: LLM_PROVIDER=deepseek tetapi APP_PASSWORD kosong. Siapa pun yang bisa membuka aplikasi ini "
         "dapat memakai API key dan saldo kamu. Isi APP_PASSWORD di .env.",

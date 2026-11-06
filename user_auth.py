@@ -47,6 +47,7 @@ def prepare_env(base_dir):
     if not enabled():
         return
     os.environ["LLM_PROVIDER"] = "deepseek"
+    os.environ.setdefault("HOST", "127.0.0.1")  # hanya bisa dibuka dari laptop ini, bukan dari jaringan Wi-Fi
     if not _cfg("DEEPSEEK_URL"):
         os.environ["DEEPSEEK_URL"] = _cfg("SUPABASE_URL").rstrip("/") + "/functions/v1/llm-proxy"
     os.environ["DEEPSEEK_API_KEY"] = _cfg("USER_API_KEY")  # bearer ke proxy = key milik pengguna ini

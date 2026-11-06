@@ -11,6 +11,7 @@ os.environ["SUPABASE_ANON_KEY"] = "sb_publishable_test"
 os.environ["USER_API_KEY"] = ""
 os.environ.pop("USER_AUTH", None)
 os.environ.pop("DEEPSEEK_URL", None)
+os.environ.pop("HOST", None)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import app as app_module  # noqa: E402
@@ -35,6 +36,7 @@ user_auth._state["env_file"] = tmp
 check(user_auth.enabled(), "mode terkelola aktif")
 check(app_module.DEEPSEEK_URL == "https://example.supabase.co/functions/v1/llm-proxy", "AI diarahkan ke proxy")
 check(app_module.LLM_PROVIDER == "deepseek", "provider dipaksa deepseek")
+check(os.environ.get("HOST") == "127.0.0.1", "HOST default hanya localhost")
 
 c = app_module.app.test_client()
 r = c.get("/app")
