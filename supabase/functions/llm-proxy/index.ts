@@ -53,15 +53,21 @@ async function recordUsage(body: ReadableStream<Uint8Array>, isStream: boolean, 
     const hit = Number(usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0);
     const total = Number(usage.total_tokens ?? prompt + completion);
     if (total <= 0) return;
-    const { error } = await db.from("token_logs").insert({
+    const row = {
       user_id: userId,
       model_name: model,
       prompt_tokens: prompt,
       cache_hit_tokens: hit,
       completion_tokens: completion,
       total_tokens: total,
-    });
-    if (error) console.error("insert token_logs gagal:", error.message);
+    };
+    // Coba sampai 3 kali: koneksi sesaat ke database kadang putus, jangan sampai pemakaian tak tercatat.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { error } = await db.from("token_logs").insert(row);
+      if (!error) return;
+      console.error(`insert token_logs gagal (percobaan ${attempt}/3):`, error.message);
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
   } catch (e) {
     console.error("recordUsage gagal:", e);
   }
