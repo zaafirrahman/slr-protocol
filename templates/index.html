@@ -12,11 +12,10 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <a href="#overview" class="brand" aria-label="SLR Protocol beranda">
+      <a href="/" class="brand" aria-label="SLR Protocol beranda">
         <img class="brand-logo" src="{{ url_for('static', filename='slr.png') }}" alt="SLR Protocol">
         <span><strong>SLR Protocol</strong><small>literature review</small></span>
       </a>
-      <a class="sidebar-home" href="/">← Beranda</a>
       <nav class="side-nav side-nav-solo" aria-label="Arah riset">
         <button class="nav-item" data-target="arah-riset"><span class="nav-icon">00</span> Arah Riset <span class="nav-count" title="Khusus TMI ITB">TMI</span></button>
       </nav>
@@ -74,7 +73,7 @@
             <div class="field"><label for="inclusion">Kriteria inklusi</label><textarea id="inclusion" rows="3" placeholder="Contoh: artikel peer-reviewed, bahasa Inggris/Indonesia, rentang tahun…"></textarea></div>
             <div class="field"><label for="exclusion">Kriteria eksklusi</label><textarea id="exclusion" rows="3" placeholder="Contoh: editorial, artikel di luar domain, duplikat…"></textarea></div>
             <div class="field"><label for="guide-context">Konteks panduan naskah</label><select id="guide-context"><option value="itb-tmi">ITB TMI (tugas taksonomi penelitian)</option><option value="umum">Umum (kampus atau mata kuliah lain)</option></select></div>
-            <div class="form-footer"><span class="save-hint"><span class="save-check">✓</span> Perubahan disimpan lokal di browser</span><button type="submit" class="button button-primary">Simpan konfigurasi <span>→</span></button></div>
+            <div class="form-footer"><span class="save-hint"><span class="save-check">✓</span> Perubahan disimpan lokal di browser</span><button type="submit" class="button button-primary">Simpan konfigurasi</button></div>
           </form>
 
           <div class="section-heading upload-heading"><div><p class="eyebrow">02 / ARTICLE IDENTIFICATION</p><h2>Tambahkan jurnal PDF</h2></div><span class="section-note" id="upload-limits-note">Maks. 8 PDF per batch · 12 MB per PDF</span></div>
@@ -104,7 +103,7 @@
             <div class="metric-card"><div class="metric-top"><span>Research gaps</span><span class="metric-symbol">⌁</span></div><strong id="metric-gaps">—</strong><small id="metric-gaps-note">Jalankan sintesis untuk melihat gap</small></div>
           </div>
 
-          <div class="section-heading compact-heading"><div><p class="eyebrow">03 / REVIEW PROGRESS</p><h2>Progres analisis</h2></div><button class="text-button" data-go="articles">Kelola artikel <span>→</span></button></div>
+          <div class="section-heading compact-heading"><div><p class="eyebrow">03 / REVIEW PROGRESS</p><h2>Progres analisis</h2></div><button class="text-button" data-go="articles">Kelola artikel</button></div>
           <div class="panel progress-panel"><div class="progress-panel-head"><div><strong>Screening dan eligibility</strong><p>PRISMA diperbarui dari keputusan yang tersimpan.</p></div><span id="progress-ratio" class="ratio-pill">0 / 0 selesai</span></div><div class="stacked-progress" id="stacked-progress"><span class="seg-included"></span><span class="seg-excluded"></span><span class="seg-pending"></span></div><div class="legend-row"><span><i class="legend-dot dot-included"></i>Termasuk</span><span><i class="legend-dot dot-excluded"></i>Dikeluarkan</span><span><i class="legend-dot dot-pending"></i>Belum diputuskan</span></div></div>
         </section>
 
@@ -125,19 +124,21 @@
         </section>
 
         <section id="articles" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">ARTICLE MANAGEMENT</p><h1>Daftar artikel</h1><p class="page-subtitle">Periksa hasil ekstraksi, lalu tetapkan keputusan screening dan full-text eligibility.</p></div><div class="title-actions"><button class="button button-secondary" data-go="overview">+ Tambah PDF</button><button class="button" data-go="design">Lanjut: Taksonomi Desain Riset →</button></div></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">ARTICLE MANAGEMENT</p><h1>Daftar artikel</h1><p class="page-subtitle">Periksa hasil ekstraksi, lalu tetapkan keputusan screening dan full-text eligibility.</p></div><div class="title-actions"><button class="button button-secondary" data-go="overview">+ Tambah PDF</button><button class="button" data-go="design">Lanjut: Taksonomi Desain Riset</button></div></div>
           <div class="filter-row"><div class="search-field"><span>⌕</span><input id="article-search" type="search" placeholder="Cari judul, penulis, kata kunci…"></div><select id="article-filter" aria-label="Filter artikel"><option value="all">Semua artikel</option><option value="pending">Belum diputuskan</option><option value="included">Termasuk sintesis</option><option value="excluded">Dikeluarkan</option></select></div>
           <div class="panel table-panel"><div class="table-top"><div><strong>Evidence library</strong><small id="article-table-note">Belum ada artikel</small></div><button class="text-button" id="clear-articles">Hapus semua artikel</button></div><div class="table-scroll"><table><thead><tr><th>ARTIKEL / METADATA</th><th>REKOMENDASI MODEL</th><th>SCREENING</th><th>FULL TEXT</th><th></th></tr></thead><tbody id="articles-body"><tr><td colspan="5" class="empty-cell">Belum ada artikel. Unggah PDF pada halaman Ikhtisar.</td></tr></tbody></table></div></div>
           <div id="article-detail" class="panel article-detail hidden"></div>
         </section>
 
         <section id="prisma" class="page-section">
+          <div class="wip-bar" role="alert"><span class="wip-label">SLR Lanjutan <span class="wip-tag">Under development</span></span><span class="wip-text">Fitur ini belum selesai dikembangkan. Jika tetap dijalankan, hasil sintesisnya belum valid dan jangan dipakai sebagai acuan.</span></div>
           <div class="section-heading page-title-row"><div><p class="eyebrow">SELECTION REPORTING</p><h1>PRISMA flow diagram</h1><p class="page-subtitle">Jumlah dihitung dari artikel unik dan keputusan seleksi yang kamu simpan.</p></div><button id="print-prisma" class="button button-secondary">Cetak / simpan PDF ↗</button></div>
           <div class="notice notice-warm"><strong>Catatan metodologi</strong><span>Diagram ini adalah pelacakan seleksi berdasarkan PDF yang diunggah. Ia tidak mengklaim jumlah hasil pencarian database yang tidak dimasukkan ke sistem. Artikel pending ditampilkan terpisah agar alur tetap transparan.</span></div>
           <div class="panel prisma-panel"><div class="diagram-title"><span class="eyebrow">FLOW OF INFORMATION</span><span id="prisma-updated" class="muted-small">Belum ada data</span></div><div id="prisma-diagram" class="prisma-diagram"><div class="empty-state">Unggah PDF dan tetapkan keputusan screening untuk membangun diagram PRISMA.</div></div><div class="diagram-legend"><span><i class="legend-dot dot-included"></i>Include</span><span><i class="legend-dot dot-excluded"></i>Exclude</span><span><i class="legend-dot dot-pending"></i>Pending / perlu verifikasi</span></div></div>
         </section>
 
         <section id="synthesis" class="page-section">
+          <div class="wip-bar" role="alert"><span class="wip-label">SLR Lanjutan <span class="wip-tag">Under development</span></span><span class="wip-text">Fitur ini belum selesai dikembangkan. Jika tetap dijalankan, hasil sintesisnya belum valid dan jangan dipakai sebagai acuan.</span></div>
           <div class="section-heading page-title-row"><div><p class="eyebrow">ANALYSIS & SYNTHESIS</p><h1>Review synthesis</h1><p class="page-subtitle">Sintesis hanya menggunakan artikel yang kamu tandai INCLUDE pada kedua tahap.</p></div><button id="run-synthesis" class="button button-primary">* Jalankan sintesis</button></div>
           <div class="notice notice-blue"><strong>Sebelum menjalankan</strong><span>Pastikan research question dan kriteria seleksi sudah ditetapkan. Minimal satu artikel harus berstatus INCLUDE pada screening dan full-text eligibility.</span></div>
           <div id="synthesis-progress" class="progress-wrap hidden" aria-live="polite">
@@ -147,18 +148,19 @@
             <p id="synthesis-progress-usage" class="progress-usage"></p>
             <div class="process-log-wrap"><strong>Log proses</strong><div id="synthesis-progress-log" class="process-log" aria-live="polite"><div class="process-log-item">Menunggu proses dimulai…</div></div></div>
           </div>
-          <div id="synthesis-empty" class="panel empty-large"><div class="empty-illustration">*</div><h2>Temukan pola di antara studi</h2><p>Jalankan sintesis untuk membandingkan tema, konsistensi hasil, kontradiksi, research gap, peta topik, dan relasi sistem.</p><button class="button button-primary" data-go="articles">Verifikasi artikel terlebih dahulu →</button></div>
+          <div id="synthesis-empty" class="panel empty-large"><div class="empty-illustration">*</div><h2>Temukan pola di antara studi</h2><p>Jalankan sintesis untuk membandingkan tema, konsistensi hasil, kontradiksi, research gap, peta topik, dan relasi sistem.</p><button class="button button-primary" data-go="articles">Verifikasi artikel terlebih dahulu</button></div>
           <div id="synthesis-output" class="hidden"></div>
         </section>
 
         <section id="taxonomy" class="page-section">
+          <div class="wip-bar" role="alert"><span class="wip-label">SLR Lanjutan <span class="wip-tag">Under development</span></span><span class="wip-text">Fitur ini belum selesai dikembangkan. Jika tetap dijalankan, hasil sintesisnya belum valid dan jangan dipakai sebagai acuan.</span></div>
           <div class="section-heading page-title-row"><div><p class="eyebrow">PETA TOPIK</p><h1>Peta topik</h1><p class="page-subtitle">Pengelompokan studi menurut apa yang diteliti (domain, masalah, peran prediksi). Dihasilkan AI dari Review Synthesis; bukan taksonomi desain riset.</p></div><button class="button button-secondary" data-go="synthesis">Lihat sintesis ↗</button></div>
           <div class="taxonomy-tabs" role="tablist"><button class="taxonomy-tab active" data-taxonomy="hierarchical">01 / Hierarchical</button><button class="taxonomy-tab" data-taxonomy="poly">02 / Poly-hierarchical</button><button class="taxonomy-tab" data-taxonomy="faceted">03 / Faceted</button><button class="taxonomy-tab" data-taxonomy="flat">04 / List · Flat</button><button class="taxonomy-tab" data-taxonomy="matrix">05 / Matrices</button></div>
           <div id="taxonomy-content" class="panel taxonomy-panel"><div class="empty-state">Jalankan Review Synthesis untuk menghasilkan peta topik dari artikel yang termasuk.</div></div>
         </section>
 
         <section id="design" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">RESEARCH ONION</p><h1>Taksonomi desain riset</h1><p class="page-subtitle">Metodologi, strategi, dan teknik dari artikel, disusun menurut lapisan research onion (Saunders dkk.). Dihitung oleh kode dari label hasil ekstraksi, tanpa AI dan tanpa biaya token.</p></div><div class="title-actions"><button class="button" data-go="design-diagram">Lihat sebagai diagram →</button></div></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">RESEARCH ONION</p><h1>Taksonomi desain riset</h1><p class="page-subtitle">Metodologi, strategi, dan teknik dari artikel, disusun menurut lapisan research onion (Saunders dkk.). Dihitung oleh kode dari label hasil ekstraksi, tanpa AI dan tanpa biaya token.</p></div><div class="title-actions"><button class="button" data-go="design-diagram">Lihat sebagai diagram</button></div></div>
           <div id="design-steps" class="panel design-steps"></div>
           <div class="panel design-controls">
             <label class="design-field"><span>Nama topik (akar taksonomi)</span><input id="design-topic" type="text" maxlength="200" placeholder="mis. Predict-then-Optimize"></label>
@@ -173,14 +175,13 @@
         </section>
 
         <section id="design-diagram" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">VISUALISASI TAKSONOMI</p><h1>Diagram taksonomi desain riset</h1><p class="page-subtitle">Visualisasi hasil taksonomi desain riset: Metodologi, Strategi, Teknik &amp; prosedur, dan Fondasi. Angka pada simpul = jumlah artikel.</p></div><div class="title-actions"><button class="button button-secondary" data-go="design">← Taksonomi (teks)</button></div></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">VISUALISASI TAKSONOMI</p><h1>Diagram taksonomi desain riset</h1><p class="page-subtitle">Visualisasi hasil taksonomi desain riset: Metodologi, Strategi, Teknik &amp; prosedur, dan Fondasi. Angka pada simpul = jumlah artikel.</p></div><div class="title-actions"><button class="button button-secondary" data-go="design">Taksonomi (teks)</button></div></div>
           <div class="panel dg-toolbar">
             <div class="dg-meta" id="dg-meta">Belum ada data.</div>
             <div class="dg-controls">
               <div class="dg-seg" role="tablist" aria-label="Bentuk diagram"><button type="button" class="dg-seg-btn active" data-dg-layout="tree">Pohon</button><button type="button" class="dg-seg-btn" data-dg-layout="sunburst">Sunburst</button></div>
-              <button type="button" class="button button-quiet button-small" id="dg-zoom-out" title="Perkecil">−</button><button type="button" class="button button-quiet button-small" id="dg-zoom-in" title="Perbesar">+</button><button type="button" class="button button-quiet button-small" id="dg-fit">Pas</button>
-              <button type="button" class="button button-quiet button-small" id="dg-expand">Buka semua</button>
-              <button type="button" class="button button-quiet button-small" id="dg-collapse">Ciutkan</button>
+              <div class="dg-seg dg-zoom" role="group" aria-label="Zoom"><button type="button" class="dg-seg-btn" id="dg-zoom-out" title="Perkecil" aria-label="Perkecil">−</button><button type="button" class="dg-seg-btn" id="dg-fit" title="Sesuaikan ke layar" aria-label="Sesuaikan ke layar">○</button><button type="button" class="dg-seg-btn" id="dg-zoom-in" title="Perbesar" aria-label="Perbesar">+</button></div>
+              <div class="dg-seg" role="group" aria-label="Lipatan cabang"><button type="button" class="dg-seg-btn" id="dg-expand" title="Buka semua cabang dan tampilkan semua teknik">Expand</button><button type="button" class="dg-seg-btn" id="dg-collapse" title="Ciutkan cabang">Collapse</button></div>
               <button type="button" class="button button-quiet button-small formal-btn" id="formal-toggle" aria-pressed="false" title="Latar putih tanpa warna, untuk naskah formal. Berlaku juga untuk unduhan.">◐ Mode formal</button>
               <button type="button" class="button button-small" id="dg-svg">Unduh SVG ↗</button>
               <button type="button" class="button button-small" id="dg-png">Unduh PNG ↗</button>
@@ -194,6 +195,7 @@
         </section>
 
         <section id="cooccurrence" class="page-section">
+          <div class="wip-bar" role="alert"><span class="wip-label">SLR Lanjutan <span class="wip-tag">Under development</span></span><span class="wip-text">Fitur ini belum selesai dikembangkan. Jika tetap dijalankan, hasil sintesisnya belum valid dan jangan dipakai sebagai acuan.</span></div>
           <div class="section-heading page-title-row"><div><p class="eyebrow">KEYWORD NETWORK ANALYSIS</p><h1>Co-occurrence analysis</h1><p class="page-subtitle">Peta kemunculan bersama kata kunci/konsep antarartikel, terinspirasi alur kerja VOSviewer.</p></div><button class="button button-secondary" id="cooccurrence-download">Unduh network SVG ↗</button></div>
           <div class="notice notice-warm"><strong>Interpretasi</strong><span>Garis menghubungkan istilah yang muncul bersama pada artikel yang sama. Ketebalan garis menunjukkan frekuensi co-occurrence dalam korpus yang tersedia; ini bukan bukti hubungan kausal. Hasil ini merupakan visualisasi native website, bukan ekspor resmi VOSviewer.</span></div>
           <div class="panel system-map-panel"><div class="map-toolbar"><span id="cooccurrence-meta">Jalankan sintesis untuk membangun jaringan istilah.</span><label class="field-inline">Minimum kemunculan <select id="cooccurrence-min"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label></div><div id="cooccurrence-canvas" class="system-map-canvas"><div class="empty-state">Jaringan co-occurrence akan tampil setelah sintesis berhasil dilakukan.</div></div></div>
@@ -201,6 +203,7 @@
         </section>
 
         <section id="system-map" class="page-section">
+          <div class="wip-bar" role="alert"><span class="wip-label">SLR Lanjutan <span class="wip-tag">Under development</span></span><span class="wip-text">Fitur ini belum selesai dikembangkan. Jika tetap dijalankan, hasil sintesisnya belum valid dan jangan dipakai sebagai acuan.</span></div>
           <div class="section-heading page-title-row"><div><p class="eyebrow">RELATIONSHIP MAPPING</p><h1>System map</h1><p class="page-subtitle">Peta konsep, faktor, konteks, dan outcome beserta hubungan yang didukung bukti.</p></div><button class="button button-secondary" id="system-map-download">Unduh SVG ↗</button></div>
           <div class="notice notice-warm"><strong>Baca peta secara kritis</strong><span>Panah menunjukkan hubungan yang diekstrak atau disintesis dari artikel terpilih. Diagram konseptual tidak membuktikan hubungan sebab-akibat.</span></div>
           <div class="panel system-map-panel"><div class="map-toolbar"><span id="system-map-meta">Belum ada system map</span><span class="map-key"><i class="map-key-node"></i> Konsep / variabel <i class="map-key-line"></i> Hubungan berbukti</span></div><div id="system-map-canvas" class="system-map-canvas"><div class="empty-state">System map akan tampil setelah sintesis berhasil dilakukan.</div></div></div>

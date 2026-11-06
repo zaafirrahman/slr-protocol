@@ -693,7 +693,7 @@
       {title: 'Ekspor', done: false, note: 'Unduh laporan HTML, lalu cetak mode naskah (PDF bersih) atau mode lengkap (audit) dari laporan itu.'},
     ];
     box.innerHTML = '<p class="eyebrow">LANGKAH</p><ol class="step-list">' + steps.map((s, i) =>
-      `<li class="step${s.done ? ' done' : ''}"><span class="step-mark">${s.done ? '✓' : '○'}</span><span><strong>${i + 1}. ${esc(s.title)}</strong><small>${esc(s.note)}</small>${s.go ? `<button class="text-button" type="button" data-step-go="${s.go}">Ke tab Artikel →</button>` : ''}</span></li>`).join('') + '</ol>';
+      `<li class="step${s.done ? ' done' : ''}"><span class="step-mark">${s.done ? '✓' : '○'}</span><span><strong>${i + 1}. ${esc(s.title)}</strong><small>${esc(s.note)}</small>${s.go ? `<button class="text-button" type="button" data-step-go="${s.go}">Ke tab Artikel</button>` : ''}</span></li>`).join('') + '</ol>';
     box.querySelectorAll('[data-step-go]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.stepGo)));
   }
   async function renderDesign() {
@@ -1634,7 +1634,7 @@ ${refnote}
   function dgPrep(node, depth, branch, path) {
     const id = path ? `${path}/${node.id}` : String(node.id);
     const br = depth === 1 ? node.id : branch;
-    const CAP = DG.all ? Infinity : 15;   // DG.all (Buka semua) = tampilkan semua teknik; ringkasan "+N teknik lain" hanya muncul pada mode Pas/awal
+    const CAP = DG.all ? Infinity : 15;   // DG.all (Buka semua) = tampilkan semua teknik; ringkasan "+N teknik lain" muncul pada tampilan awal dan Collapse
     // Simpul tanpa artikel (dan tanpa turunan yang punya artikel) tidak digambar. Cabang kosong tetap terlihat di tab Taksonomi Desain Riset.
     const alive = k => (k.count || 0) > 0 || list(k.children).some(alive);
     const kids = list(node.children).filter(alive);
@@ -1874,7 +1874,7 @@ ${refnote}
     $('#dg-collapse').addEventListener('click', () => { if (!DG.root) return; DG.all = false; dgReprep(); dgWalk(DG.root, n => { if (n.depth >= 1 && n.children.length) DG.collapsed.add(n.id); }); DG.fit = true; dgPaint(); });
     $('#dg-zoom-in').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.min(2.5, DG.zoom * 1.2); dgPaint(); });
     $('#dg-zoom-out').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.max(0.2, DG.zoom / 1.2); dgPaint(); });
-    $('#dg-fit').addEventListener('click', () => { if (!DG.root) return; DG.all = false; dgReprep(); DG.fit = 'all'; DG.resetScroll = true; dgPaint(); });
+    $('#dg-fit').addEventListener('click', () => { if (!DG.root) return; DG.fit = 'all'; DG.resetScroll = true; dgPaint(); });   // hanya zoom: lipatan tidak berubah
     $('#dg-svg').addEventListener('click', () => dgDownload('svg'));
     $('#dg-png').addEventListener('click', () => dgDownload('png'));
     window.addEventListener('resize', () => { if (DG.root && DG.fit && $('#design-diagram').classList.contains('active-section')) dgPaint(); });

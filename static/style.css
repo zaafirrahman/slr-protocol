@@ -342,7 +342,7 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 @media(max-width:1100px){.ar-wrap{grid-template-columns:1fr}}
 
 /* ===== Navigasi dari landing + Diagram taksonomi (tema terminal: persegi, monokrom, inverse video untuk aktif) ===== */
-.sidebar-home{display:block;margin:0 18px 14px;font-size:11px;color:var(--dim);text-decoration:none}.sidebar-home:hover{color:var(--bright)}
+
 .dg-toolbar{display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px}
 .dg-meta{font-size:12px;color:var(--dim)}.dg-meta b{color:var(--bright)}
 .dg-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -384,7 +384,7 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 .brand strong{font:700 16px var(--display);letter-spacing:-.01em}
 .brand small{font-size:11px}
 .workspace-label{font-size:11px;font-weight:600;letter-spacing:.08em;padding:0 22px 8px}
-.sidebar-home{margin:0 22px 14px}.sidebar-home:hover{color:var(--pink)}
+
 .nav-item{margin:2px 10px;padding:9px 12px;border-radius:10px;font-weight:500;transition:background .15s,color .15s}
 .nav-item:hover{background:var(--raised);color:var(--bright)}
 .nav-item.active{background:var(--pink);color:#000;font-weight:600}
@@ -393,12 +393,12 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 .nav-count{border-radius:999px;padding:0 7px;font-size:10px;font-weight:600}
 .private-card{border-radius:14px;border-color:var(--line-soft);background:var(--panel)}
 .private-dot{border-radius:50%;background:var(--pink);box-shadow:0 0 0 3px var(--pink-wash)}
-.credit-link img{border-radius:50%}.credit-link:hover{color:var(--pink)}
+.credit-link img{border-radius:7px}.credit-link:hover{color:var(--pink)}
 
 /* topbar */
 .topbar{background:rgba(0,0,0,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line-soft)}
 .status-pill{border-radius:999px;padding:4px 11px;font-weight:500}.status-dot{border-radius:50%}
-.usage-chip{border-color:var(--line)}.usage-chip:hover,.usage-chip[aria-expanded="true"]{background:var(--pink);border-color:var(--pink);color:#000}
+.usage-chip{border-color:var(--line)}.usage-chip:hover,.usage-chip[aria-expanded="true"]{background:var(--bright);border-color:var(--bright);color:#000}
 .usage-period-dot{border-radius:50%}
 
 /* judul */
@@ -540,3 +540,17 @@ body.formal .dg-panel,body.formal .prisma-panel,body.formal .taxonomy-panel,body
   --ok:#222;--bad:#555;--warn:#777;--info:#333;--pink:#000;--pink-soft:#333;--pink-wash:#eee;background:#fff;color:#111;border-color:#bbb}
 body.formal .dg-canvas,body.formal .system-map-canvas{background-color:#fff;background-image:radial-gradient(#e0e0e0 1px,transparent 1px)}
 body.formal .taxonomy-svg,body.formal .cooccur-svg,body.formal .system-map-canvas svg{filter:invert(1) grayscale(1)}
+
+/* Zoom (− ○ +) dan Expand/Collapse: satu kapsul penuh per kelompok */
+.dg-zoom .dg-seg-btn{min-width:36px;padding:4px 12px;font-size:15px;line-height:1.2}
+.dg-seg-btn:focus-visible{outline-offset:-2px}
+
+/* titik "Workspace pribadi": berkedip */
+@keyframes dot-blink{0%,100%{opacity:1;box-shadow:0 0 0 3px var(--pink-wash),0 0 8px var(--pink)}50%{opacity:.25;box-shadow:0 0 0 3px transparent,0 0 0 var(--pink)}}
+.private-dot{animation:dot-blink 1.4s ease-in-out infinite}
+
+/* bar peringatan fitur SLR lanjutan (tahap 05-09) */
+.wip-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:0 0 20px;padding:12px 18px;border-radius:14px;background:#c4151c;color:#fff;font-size:13px;line-height:1.5}
+.wip-label{display:inline-flex;align-items:center;gap:10px;font:700 12px var(--display,inherit);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.wip-tag{display:inline-block;padding:2px 10px;border:1px solid #fff;border-radius:999px;font:600 10px var(--display,inherit);letter-spacing:.04em;text-transform:none;background:rgba(0,0,0,.25)}
+.wip-text{flex:1 1 280px;min-width:0}
