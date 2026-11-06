@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-title LitReview Studio
+title SLR Protocol
 
 rem ---- 1. Cek Python & Git ------------------------------------------------
 set "PY="
@@ -17,7 +17,7 @@ rem ---- 2. Ambil pembaruan terbaru (dilewati bila offline) ------------------
 where git >nul 2>&1
 if %errorlevel%==0 if exist ".git" (
   echo Memeriksa pembaruan...
-  git pull --ff-only
+  call git pull --ff-only
   if errorlevel 1 echo [!] Pembaruan gagal, aplikasi tetap dijalankan dengan versi yang ada.
 )
 
@@ -29,7 +29,7 @@ if not exist ".env" (
 
 rem ---- 4. Virtual environment + dependensi --------------------------------
 if not exist "venv\Scripts\python.exe" (
-  echo Menyiapkan lingkungan Python (pertama kali, butuh beberapa menit)...
+  echo Menyiapkan lingkungan Python - pertama kali butuh beberapa menit...
   %PY% -m venv venv
   if errorlevel 1 ( echo [!] Gagal membuat venv. & pause & exit /b 1 )
 )
