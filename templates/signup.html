@@ -3,46 +3,135 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Daftar · LitReview Studio</title>
+  <meta name="theme-color" content="#000000">
+  <title>Daftar · SLR Protocol</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='slr.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700;800&display=swap">
   <style>
-    :root { --bg:#f6f7f9; --card:#fff; --text:#1c2230; --muted:#5d6678; --line:#d9dde5; --accent:#2f5bea; --err:#b42318; }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg:#12151c; --card:#1b2030; --text:#e8ebf3; --muted:#9aa3b8; --line:#2d3550; --accent:#6d8bff; --err:#ff8a80; }
-    }
-    * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
-           background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-    main { width:100%; max-width:420px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; }
-    h1 { margin:0 0 4px; font-size:22px; }
-    p.sub { margin:0 0 20px; color:var(--muted); font-size:14px; }
-    label { display:block; margin:14px 0 6px; font-size:14px; font-weight:600; }
-    input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
-    input:focus { outline:2px solid var(--accent); outline-offset:1px; }
-    button { margin-top:20px; width:100%; padding:11px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
-    .err { margin-top:14px; padding:10px 12px; border:1px solid var(--err); border-radius:8px; color:var(--err); font-size:14px; }
-    .note { margin-top:16px; color:var(--muted); font-size:13px; }
-    code { display:block; margin:10px 0; padding:10px; border:1px solid var(--line); border-radius:8px; word-break:break-all; user-select:all; }
+/* Tema sama dengan landing SLR Protocol: hitam (primer) · pink (sekunder) · putih (tersier). */
+:root{
+  --bg:#000;--panel:#0d0d0d;--raised:#171717;--line:#2e2e2e;--line-soft:#1e1e1e;
+  --dim:#9b9b9b;--text:#e8e8e8;--bright:#fff;
+  --pink:#ff4fa3;--pink-soft:#ffb3d6;--pink-wash:rgba(255,79,163,.14);
+  --bad:#ff8a5b;--warn:#ffd166;
+  --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --display:'Poppins','Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{margin:0;min-height:100%;display:flex;align-items:center;justify-content:center;padding:32px 16px;
+  background:radial-gradient(70% 46% at 50% 0%,rgba(255,79,163,.20),transparent 70%),var(--bg);
+  color:var(--text);font:400 15px/1.7 var(--font);-webkit-font-smoothing:antialiased}
+::selection{background:var(--pink);color:#000}
+:focus-visible{outline:2px solid var(--pink);outline-offset:3px;border-radius:6px}
+h1{font-family:var(--display);font-weight:800;color:var(--bright);letter-spacing:-.03em;line-height:1.15;margin:0}
+.grad{color:var(--pink)}
+
+.shell{width:min(460px,100%)}
+.brand{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 28px;
+  font:700 24px var(--display);color:var(--bright);letter-spacing:-.02em}
+.brand img{width:48px;height:48px;object-fit:contain}
+
+.window{background:var(--panel);border:1.5px solid var(--bright);border-radius:20px;box-shadow:8px 8px 0 var(--pink);overflow:hidden}
+.win-bar{display:flex;align-items:center;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.win-bar i{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.win-bar i:first-child{background:var(--pink)}
+.win-bar span{margin-left:10px;font-size:12px;color:var(--dim)}
+.win-body{padding:30px 28px 28px}
+
+.pill{display:inline-flex;align-items:center;gap:9px;padding:6px 14px;border:1px solid var(--line);border-radius:999px;
+  color:var(--text);font-size:12.5px;font-weight:500;margin-bottom:16px}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--pink)}
+.win-body h1{font-size:clamp(26px,6vw,32px)}
+.sub{margin:12px 0 24px;color:var(--dim);font-size:14.5px}
+
+label{display:block;margin:0 0 8px;font:600 14px var(--display);color:var(--bright)}
+input{width:100%;padding:13px 16px;border:1.5px solid var(--line);border-radius:14px;background:var(--bg);
+  color:var(--bright);font:500 15px var(--font);transition:border-color .15s,box-shadow .15s}
+input::placeholder{color:#5c5c5c}
+input:hover{border-color:#4a4a4a}
+input:focus{outline:none;border-color:var(--pink);box-shadow:0 0 0 4px var(--pink-wash)}
+.hint{margin:8px 0 0;font-size:12.5px;color:var(--dim)}
+
+.err{margin-top:16px;padding:12px 16px;border:1.5px solid var(--bad);border-radius:14px;background:rgba(255,138,91,.10);
+  color:var(--bad);font-size:14px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:22px;padding:14px 26px;
+  border:1.5px solid var(--pink);border-radius:999px;background:var(--pink);color:#000;
+  font:600 15px var(--display);cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.btn:hover{background:var(--bright);border-color:var(--bright)}
+.btn[disabled]{opacity:.6;cursor:progress}
+.btn.ghost{background:transparent;border-color:var(--bright);color:var(--bright);width:auto;margin-top:0;padding:9px 20px;font-size:13px;flex:none}
+.btn.ghost:hover{background:var(--bright);color:#000}
+
+.chips{display:flex;gap:6px 20px;flex-wrap:wrap;margin-top:22px;font-size:12.5px;color:var(--dim)}
+.chips span:before{content:"✓";color:var(--pink);margin-right:7px;font-weight:700}
+
+.warn{margin:0 0 20px;padding:14px 18px;border:1.5px solid var(--warn);border-left-width:6px;border-radius:14px;
+  background:rgba(255,209,102,.10);font-size:14px;color:var(--text)}
+.code{display:flex;align-items:center;gap:12px;margin:14px 0;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 10px 10px 16px}
+.code code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
+  font:500 13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--pink-soft);user-select:all}
+.code code::-webkit-scrollbar{display:none}
+ol{margin:0 0 4px;padding-left:20px;color:var(--text);font-size:14px}
+ol li{margin:4px 0}
+.note{margin:14px 0 0;font-size:12.5px;color:var(--dim)}
+.foot{margin:26px 0 0;text-align:center;font-size:12.5px;color:var(--dim)}
+@media(max-width:420px){.win-body{padding:24px 20px 22px}.window{box-shadow:6px 6px 0 var(--pink)}}
   </style>
 </head>
 <body>
-  <main>
-    {% if manual_key %}
-      <h1>Hampir selesai</h1>
-      <p class="sub">Akun sudah dibuat, tetapi file <b>.env</b> tidak bisa ditulis otomatis.</p>
-      <p>Buka file <b>.env</b> di folder aplikasi, lalu tambahkan baris ini dan jalankan ulang aplikasi:</p>
-      <code>USER_API_KEY={{ manual_key }}</code>
-      <p class="note">Simpan baik-baik. Key ini hanya ditampilkan sekali.</p>
-    {% else %}
-      <h1>Daftar sekali saja</h1>
-      <p class="sub">Buat akun supaya pemakaian AI-mu tercatat atas namamu sendiri.</p>
-      <form method="post" action="/signup" autocomplete="off">
-        <label for="username">Nama pengguna atau email</label>
-        <input id="username" name="username" value="{{ username }}" required minlength="3" maxlength="60" autofocus>
-        {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
-        <button type="submit">Daftar &amp; mulai</button>
-      </form>
-      <p class="note">Key pribadimu akan disimpan otomatis di laptop ini.</p>
-    {% endif %}
+  <main class="shell">
+    <div class="brand"><img src="{{ url_for('static', filename='slr.png') }}" alt="" width="48" height="48"><span>SLR Protocol</span></div>
+
+    <section class="window">
+      <div class="win-bar"><i></i><i></i><i></i><span>{% if manual_key %}Satu langkah lagi{% else %}Daftar · cukup sekali{% endif %}</span></div>
+      <div class="win-body">
+      {% if manual_key %}
+        <span class="pill"><i></i>Akun sudah dibuat</span>
+        <h1>Hampir selesai, <span class="grad">tinggal satu langkah.</span></h1>
+        <p class="sub">File <b style="color:#fff">.env</b> tidak bisa ditulis otomatis, jadi key-mu perlu ditempel manual.</p>
+        <div class="warn" role="note">Key ini <b>hanya ditampilkan sekali</b>. Salin dan simpan sekarang.</div>
+        <div class="code"><code id="k">USER_API_KEY={{ manual_key }}</code><button class="btn ghost" type="button" data-copy="k">Salin</button></div>
+        <ol>
+          <li>Buka file <b>.env</b> di folder aplikasi.</li>
+          <li>Tambahkan baris di atas, lalu simpan.</li>
+          <li>Tutup jendela hitam, lalu klik 2x <b>run.bat</b> lagi.</li>
+        </ol>
+      {% else %}
+        <span class="pill"><i></i>Daftar sekali saja</span>
+        <h1>Buat akunmu, <span class="grad">mulai riset.</span></h1>
+        <p class="sub">Pemakaian AI-mu tercatat atas namamu sendiri. Key pribadimu disimpan otomatis di laptop ini.</p>
+        <form method="post" action="/signup" autocomplete="off" id="f">
+          <label for="username">Nama pengguna atau email</label>
+          <input id="username" name="username" value="{{ username }}" required minlength="3" maxlength="60" placeholder="mis. budi.santoso" autofocus>
+          <p class="hint">3–60 karakter. Dipakai untuk membedakan akunmu dari pengguna lain.</p>
+          {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+          <button class="btn" type="submit" id="go">Daftar &amp; mulai</button>
+        </form>
+        <div class="chips"><span>Data proyek tersimpan di browser</span><span>Tidak perlu daftar lagi</span></div>
+      {% endif %}
+      </div>
+    </section>
+    <p class="foot">SLR Protocol · Verifikasi semua hasil ekstraksi.</p>
   </main>
+<script>
+(function(){
+  var f=document.getElementById('f'),go=document.getElementById('go');
+  if(f&&go){
+    f.addEventListener('submit',function(){go.disabled=true;go.textContent='Mendaftar…'});
+    window.addEventListener('pageshow',function(){go.disabled=false;go.innerHTML='Daftar &amp; mulai'});
+  }
+  var b=document.querySelector('[data-copy]');
+  if(b){b.addEventListener('click',function(){
+    var t=document.getElementById(b.dataset.copy).textContent.trim(),o=b.textContent;
+    var done=function(m){b.textContent=m;setTimeout(function(){b.textContent=o},1800)};
+    if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(function(){done('Tersalin ✓')},function(){done('Gagal')})}
+    else{var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();
+      try{document.execCommand('copy')?done('Tersalin ✓'):done('Gagal')}catch(e){done('Gagal')}document.body.removeChild(a)}
+  })}
+})();
+</script>
 </body>
 </html>
