@@ -31,6 +31,9 @@ BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_FILE, override=False)
 
+import user_auth  # login mandiri + API key per pengguna; aktif bila SUPABASE_URL terisi (USER_AUTH=off untuk mematikan)
+user_auth.prepare_env(BASE_DIR)
+
 app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
@@ -75,6 +78,17 @@ else:
     CONFIG_ERROR = "Ollama belum dikonfigurasi. Periksa OLLAMA_URL dan OLLAMA_MODEL di file .env."
 APP_USERNAME = os.getenv("APP_USERNAME", "slr-user").strip() or "slr-user"
 APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
+
+
+def _apply_user_key(key):
+    """Dipanggil user_auth setelah /signup berhasil, supaya tidak perlu restart aplikasi."""
+    global DEEPSEEK_API_KEY, AI_CONFIGURED
+    DEEPSEEK_API_KEY = key
+    if LLM_PROVIDER == "deepseek":
+        AI_CONFIGURED = bool(key and DEEPSEEK_URL and DEEPSEEK_MODEL)
+
+
+user_auth.init(app, ENV_FILE, on_new_key=_apply_user_key)
 
 
 def _env_int(name, default, minimum=1):

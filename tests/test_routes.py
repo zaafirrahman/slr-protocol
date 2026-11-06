@@ -1,8 +1,10 @@
 """Tes rute halaman (tanpa jaringan, tanpa API key):  python tests/test_routes.py"""
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ["USER_AUTH"] = "off"  # tes rute tidak lewat gerbang signup
 from app import app  # noqa: E402
 
 ok = fail = 0

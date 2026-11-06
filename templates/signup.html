@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daftar · LitReview Studio</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1c2230; --muted:#5d6678; --line:#d9dde5; --accent:#2f5bea; --err:#b42318; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#12151c; --card:#1b2030; --text:#e8ebf3; --muted:#9aa3b8; --line:#2d3550; --accent:#6d8bff; --err:#ff8a80; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
+           background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { width:100%; max-width:420px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; }
+    h1 { margin:0 0 4px; font-size:22px; }
+    p.sub { margin:0 0 20px; color:var(--muted); font-size:14px; }
+    label { display:block; margin:14px 0 6px; font-size:14px; font-weight:600; }
+    input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
+    input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    button { margin-top:20px; width:100%; padding:11px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+    .err { margin-top:14px; padding:10px 12px; border:1px solid var(--err); border-radius:8px; color:var(--err); font-size:14px; }
+    .note { margin-top:16px; color:var(--muted); font-size:13px; }
+    code { display:block; margin:10px 0; padding:10px; border:1px solid var(--line); border-radius:8px; word-break:break-all; user-select:all; }
+  </style>
+</head>
+<body>
+  <main>
+    {% if manual_key %}
+      <h1>Hampir selesai</h1>
+      <p class="sub">Akun sudah dibuat, tetapi file <b>.env</b> tidak bisa ditulis otomatis.</p>
+      <p>Buka file <b>.env</b> di folder aplikasi, lalu tambahkan baris ini dan jalankan ulang aplikasi:</p>
+      <code>USER_API_KEY={{ manual_key }}</code>
+      <p class="note">Simpan baik-baik. Key ini hanya ditampilkan sekali.</p>
+    {% else %}
+      <h1>Daftar sekali saja</h1>
+      <p class="sub">Buat akun supaya pemakaian AI-mu tercatat atas namamu sendiri.</p>
+      <form method="post" action="/signup" autocomplete="off">
+        <label for="username">Nama pengguna atau email</label>
+        <input id="username" name="username" value="{{ username }}" required minlength="3" maxlength="60" autofocus>
+        {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+        <button type="submit">Daftar &amp; mulai</button>
+      </form>
+      <p class="note">Key pribadimu akan disimpan otomatis di laptop ini.</p>
+    {% endif %}
+  </main>
+</body>
+</html>
