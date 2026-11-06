@@ -35,6 +35,8 @@ app.py                  Backend Flask. Config, provider AI, progres, biaya, prom
 templates/index.html    Satu halaman Jinja (hanya url_for untuk gambar). Semua tab ada di sini.
 static/app.js           Frontend: IIFE tunggal, state, render, upload, progres, popup token, ekspor/impor.
 static/style.css        Tema terminal (monokrom, font mono, variabel CSS).
+arah_riset.py          Langkah 0 (khusus TMI ITB): mesin pertanyaan dan generator topik/RQ/query/kriteria. Murni komputasi, tanpa AI.
+arah_riset_data/        thesis_facets.json (facet tesis TMI) + vocab_en.json (istilah query bahasa Inggris). BUKAN di data/ karena data/ di-gitignore.
 requirements.txt        Flask, PyMuPDF, python-dotenv.
 start_windows.bat       Peluncur Windows (venv + pip install + python app.py).
 .env.example            Seluruh variabel konfigurasi beserta penjelasan.
@@ -285,6 +287,32 @@ dibaca, dibagikan, dan dicetak ke PDF.
 - Belum ada tes browser otomatis di repo; pengujian dilakukan dengan jsdom (termasuk muatan berbahaya di judul/penulis/DOI/teknik/topik)
   dan render PDF (WeasyPrint) untuk memeriksa tata letak cetak. Tampilan di browser sungguhan belum diverifikasi visual.
 
+### 4.8 Arah Riset (langkah 0, khusus TMI ITB)
+
+Untuk orang yang belum punya topik. Pengguna memilih dari kategori yang diturunkan dari tesis TMI terdahulu; hasilnya topik umum, RQ
+(penelitian dan untuk SLR), query ScienceDirect/Scopus, serta kriteria inklusi/eksklusi. Hasilnya disalin manual ke Ikhtisar
+(sengaja tidak mengisi otomatis; tools pencarian jurnal tetap di luar app ini).
+
+- **Tanpa AI saat runtime, tanpa biaya token.** AI hanya dipakai SEKALI di luar app (ekstraksi facet per tesis dari judul + keyword,
+  daftar kategori tertutup), hasilnya dibekukan di `arah_riset_data/thesis_facets.json`. `vocab_en.json` (ditulis tangan) memuat label dan
+  istilah pencarian bahasa Inggris per kategori; urutan istilah = prioritas saat query dipangkas.
+- **Layer**: kk, masalah, sektor, kelompok_metode, metode, pendekatan. Opsi tiap layer dihitung dari tesis yang cocok dengan pilihan layer
+  LAIN. "Belum tahu" melewati layer (tidak masuk query). `Buat hasil` butuh minimal masalah, sektor, metode, atau kelompok metode.
+- **Query**: blok Boolean (masalah, sektor, metode, kata kunci tambahan), sinonim digabung OR. `build_query` memangkas istilah
+  (dari blok terpanjang) sampai jumlah operator <= `max_ops`: 8 untuk ScienceDirect (batas per kolom; angka ini dari ingatan, VERIFIKASI
+  ke situs bila perlu), 20 untuk Scopus. Kutip selalu lurus, tanpa backslash.
+- **Celah**: hanya pasangan masalah x sektor yang belum pernah muncul di jurusan, diurutkan menurut perkiraan jumlah jika acak.
+  Celah metode sengaja TIDAK disarankan (sering tidak masuk akal, mis. adopsi teknologi x metaheuristik). "Belum ada di jurusan"
+  bukan bukti novelty global.
+- **Route** (semua `@auth_guard`): `GET /api/arah-riset/meta`, `POST /api/arah-riset/options|examples|generate`. Bila data hilang,
+  `ARAH_RISET = None` dan route menjawab 503; sisa app tetap jalan.
+- **State browser** di kunci SENDIRI `slr_arah_riset_v1` (pilihan, layer aktif, kata kunci tambahan). Tidak ikut Ekspor/Impor proyek dan
+  tidak terhapus oleh "Hapus semua artikel". Jangan digabung ke `litreview_studio_project_v1`.
+- **Memperbarui data**: jalankan ulang pipeline ekstraksi (di luar repo ini) dan timpa `thesis_facets.json`. Total tesis di halaman dibaca
+  dari data, jadi angkanya ikut berubah. Kategori tertutup (masalah, sektor, kelompok metode) didefinisikan di skrip ekstraksi; bila
+  daftar itu diubah, `vocab_en.json` harus ikut diubah supaya setiap kategori punya istilah query.
+- Tes: `python tests/test_arah_riset.py` (tanpa jaringan).
+
 ## 5. Model data
 
 ### 5.1 Record artikel (hasil `/api/analyze`, disimpan di `state.articles`)
@@ -379,7 +407,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Area | Fungsi kunci |
 |---|---|
 | State & penyimpanan | `loadState`, `saveState`, `DEFAULT_STATE`, `STORE_KEY` |
-| Navigasi | `navigate(target)`, tombol `data-target`, 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
+| Navigasi | `navigate(target)`, tombol `data-target`, 9 tab: "Arah Riset" (id `arah-riset`, berdiri sendiri di atas kedua grup tanpa label, lencana TMI, bukan bagian alur proyek) dan 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
 | Upload | `handleUpload`: validasi → pre-check duplikat (`sha256Hex` via `crypto.subtle`) → FormData + `job_id` → polling → merge artikel |
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
@@ -491,6 +519,7 @@ Urut kira-kira berdasarkan dampak:
 | Menambah/mengubah nilai research onion | `RESEARCH_ONION` (+ `METHOD_GROUPS`, naikkan `CODEBOOK_VERSION`); prompt, validasi, dan taksonomi mengikuti otomatis |
 | Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py` |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
+| Mengubah kategori/istilah query Arah Riset | `arah_riset_data/vocab_en.json` (istilah, urutan = prioritas), `arah_riset.py` (`RQ_TEMPLATE`, kriteria, `max_ops`) |
 | Menambah tab/halaman | `index.html` (tombol `data-target` + `section.page-section`), `navigate`/`renderAll` di `app.js` |
 | Mengubah tema | variabel `:root` di `style.css` + warna SVG di `app.js` |
 | Menambah kredensial/rahasia | `.env` (dan secret manager platform bila nanti ada deployment); jangan pernah commit nilainya |

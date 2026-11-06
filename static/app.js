@@ -331,9 +331,10 @@
     if (!target || !$('#' + target)) return;
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
-    const labels = {overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
+    const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
     $('#breadcrumb-current').textContent = labels[target] || target;
     window.scrollTo({top:0, behavior:'smooth'});
+    if (target === 'arah-riset') renderArahRiset();
     if (target === 'articles') renderArticles();
     if (target === 'prisma') renderPrisma();
     if (target === 'taxonomy') renderTaxonomy();
@@ -1445,9 +1446,144 @@ ${refnote}
     toast('Keputusan tersimpan. Jalankan ulang sintesis bila daftar artikel yang termasuk berubah.', 'success');
   }
 
+  // ---- Arah Riset (langkah 0, khusus TMI ITB) ----
+  // Pilihan disimpan di kunci SENDIRI: tidak ikut Ekspor proyek dan tidak terhapus bersama artikel.
+  const AR_KEY = 'slr_arah_riset_v1';
+  const AR_LAYERS = [
+    ['kk', 'Kelompok keilmuan', 'Kamu tertarik masuk kelompok keilmuan apa?'],
+    ['masalah', 'Jenis masalah', 'Masalah seperti apa yang ingin kamu analisis?'],
+    ['sektor', 'Sektor / konteks', 'Di sektor atau konteks apa?'],
+    ['kelompok_metode', 'Kelompok metode', 'Pendekatan metodenya yang mana?'],
+    ['metode', 'Metode spesifik', 'Ada metode spesifik yang menarik?'],
+    ['pendekatan', 'Bentuk penelitian', 'Penelitianmu menghasilkan apa?']
+  ];
+  let ar = loadAr();
+  let arReady = false, arShowEx = false, arLast = null, arSeq = 0;
+  const arLabels = {}, arStore = {};
+
+  function loadAr() {
+    try {
+      const v = JSON.parse(localStorage.getItem(AR_KEY) || '{}');
+      const ids = AR_LAYERS.map(l => l[0]);
+      const sel = {};
+      Object.entries(v.sel || {}).forEach(([k, val]) => { if (ids.includes(k) && typeof val === 'string' && val) sel[k] = val; });
+      return { sel, active: Number.isInteger(v.active) && v.active >= 0 && v.active < ids.length ? v.active : 0, extra: typeof v.extra === 'string' ? v.extra : '' };
+    } catch (_) { return { sel: {}, active: 0, extra: '' }; }
+  }
+  function saveAr() { try { localStorage.setItem(AR_KEY, JSON.stringify(ar)); } catch (_) { /* penyimpanan penuh/diblokir: abaikan */ } }
+  async function arApi(path, body) {
+    const res = await fetch('/api/arah-riset/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('Gagal memuat Arah Riset (' + res.status + ').'));
+    return data;
+  }
+
+  async function renderArahRiset() {
+    if (!arReady) {
+      try {
+        const meta = await arApi('meta');
+        $('#ar-total').textContent = meta.total.toLocaleString('id-ID');
+        const kk = await arApi('options', { selected: {}, layer: 'kk' });
+        kk.options.forEach(o => { arLabels['kk:' + o.value] = o.label; });
+        arReady = true;
+      } catch (err) { $('#ar-step').innerHTML = `<div class="empty-state">${esc(err.message)}</div>`; return; }
+    }
+    renderArTabs();
+    await renderArStep();
+  }
+  function renderArTabs() {
+    $('#ar-tabs').innerHTML = AR_LAYERS.map(([id, title], i) =>
+      `<button class="taxonomy-tab ${i === ar.active ? 'active' : ''}" data-ar-tab="${i}" role="tab" aria-selected="${i === ar.active}">${String(i + 1).padStart(2, '0')} / ${esc(title)}${ar.sel[id] ? ' ✓' : ''}</button>`).join('');
+  }
+  async function renderArStep() {
+    const seq = ++arSeq;
+    const [layer, title, question] = AR_LAYERS[ar.active];
+    const box = $('#ar-step');
+    let data;
+    try { data = await arApi('options', { selected: ar.sel, layer }); }
+    catch (err) { if (seq === arSeq) box.innerHTML = `<div class="empty-state">${esc(err.message)}</div>`; return; }
+    if (seq !== arSeq) return; // klik cepat: hanya render terakhir yang dipakai
+    data.options.forEach(o => { arLabels[layer + ':' + o.value] = o.label; });
+    const max = Math.max(1, ...data.options.map(o => o.count));
+    const anySel = Object.keys(ar.sel).length > 0;
+    const canGen = !!(ar.sel.masalah || ar.sel.sektor || ar.sel.metode || ar.sel.kelompok_metode);
+    const chosen = AR_LAYERS.filter(([id]) => ar.sel[id]).map(([id]) => arLabels[id + ':' + ar.sel[id]] || ar.sel[id]);
+    box.innerHTML = `<h2>${esc(title)}</h2><p class="ar-q">${esc(question)}</p>
+      ${chosen.length ? `<p class="ar-hint">Pilihanmu: ${esc(chosen.join(' / '))}</p>` : ''}
+      <p class="ar-count ${data.n === 0 ? 'ar-warn' : ''}">${data.n} tesis cocok dengan pilihan lain${data.n === 0 ? '. Kombinasi ini belum pernah ada; longgarkan pilihan lain.' : ''}</p>
+      ${data.options.length ? data.options.map(o => `<button class="ar-opt ${ar.sel[layer] === o.value ? 'sel' : ''}" data-ar-v="${esc(o.value)}"><i style="width:${Math.round(o.count / max * 100)}%"></i><span>${esc(o.label)}</span><span class="ar-n">${o.count} tesis</span></button>`).join('') : '<p class="ar-hint">Tidak ada opsi umum untuk kombinasi ini. Lewati, atau longgarkan pilihan lain.</p>'}
+      <div class="ar-actions">
+        <button class="button button-quiet" data-ar-act="skip">Belum tahu</button>
+        <button class="button button-quiet" data-ar-act="examples" ${anySel ? '' : 'disabled title="Pilih minimal satu hal dulu"'}>${arShowEx ? 'Sembunyikan contoh' : 'Lihat contoh tesis'}</button>
+        <button class="button button-primary" data-ar-act="generate" ${canGen ? '' : 'disabled title="Pilih minimal masalah, sektor, atau metode"'}>Buat hasil</button>
+        <button class="button button-quiet" data-ar-act="reset">Mulai ulang</button>
+      </div>
+      <div id="ar-examples"></div>
+      <div class="field ar-extra"><label for="ar-extra">Kata kunci tambahan <span class="optional">(bahasa Inggris, pisahkan koma, opsional)</span></label><input id="ar-extra" type="text" maxlength="200" placeholder="contoh: cold chain, perishable" value="${esc(ar.extra)}"></div>`;
+    if (arShowEx) await loadArExamples();
+  }
+  async function loadArExamples() {
+    try {
+      const data = await arApi('examples', { selected: ar.sel });
+      const el = $('#ar-examples'); if (!el) return;
+      el.innerHTML = `<ul class="ar-ex">${data.examples.map(e => `<li>${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${esc(e.judul)}</a>` : esc(e.judul)}${e.angkatan ? `<small>angkatan ${esc(e.angkatan)}</small>` : ''}</li>`).join('')}</ul><p class="ar-hint">Sampel acak dari ${data.n} tesis yang cocok. Tekan Lihat contoh lagi untuk sampel baru.</p>`;
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function generateArahRiset() {
+    try {
+      const j = await arApi('generate', { selected: ar.sel, extra: ar.extra });
+      arLast = j;
+      const list = a => `<ul>${a.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+      const parts = [
+        ['topik', 'Topik umum', `<p>${esc(j.topik_umum)}</p>${j.topik_en ? `<p class="ar-hint">${esc(j.topik_en)}</p>` : ''}`, j.topik_umum],
+        ['rq', 'Research question', `<p>${esc(j.research_question)}</p>`, j.research_question],
+        ['rqslr', 'RQ untuk SLR', `<p>${esc(j.rq_untuk_slr)}</p>`, j.rq_untuk_slr],
+        ['qsd', `Query ScienceDirect (${j.operator_sciencedirect} operator)`, `<pre>${esc(j.query_sciencedirect)}</pre><p class="ar-hint">Tempel di kolom Title, abstract or author-specified keywords.</p>`, j.query_sciencedirect],
+        ['qsc', `Query Scopus (${j.operator_scopus} operator)`, `<pre>${esc(j.query_scopus)}</pre>`, j.query_scopus],
+        ['inc', 'Kriteria inklusi', list(j.inklusi), j.inklusi.map(x => '- ' + x).join('\n')],
+        ['exc', 'Kriteria eksklusi', list(j.eksklusi), j.eksklusi.map(x => '- ' + x).join('\n')]
+      ];
+      parts.forEach(p => { arStore[p[0]] = p[3]; });
+      arStore.all = parts.map(p => p[1] + '\n' + p[3]).join('\n\n');
+      const gaps = (j.celah_jurusan || []).length ? `<div class="ar-card"><h3>Celah di jurusanmu</h3>${list(j.celah_jurusan)}<p class="ar-hint">Belum ada di jurusanmu bukan berarti belum ada di literatur, dan belum tentu layak dikerjakan.</p></div>` : '';
+      $('#ar-result').innerHTML = `<h2>Hasil</h2><p class="ar-count">${j.jumlah_tesis_serupa} tesis serupa di jurusanmu</p>
+        ${parts.map(p => `<div class="ar-card"><h3>${esc(p[1])}<button class="button button-quiet button-small" data-ar-copy="${p[0]}">Salin</button></h3>${p[2]}</div>`).join('')}
+        <div class="ar-card"><h3>Kalau hasil pencarian tidak pas</h3><p>${esc(j.panduan_hasil)}</p></div>${gaps}
+        <div class="ar-actions"><button class="button button-quiet" data-ar-copy="all">Salin semua</button><button class="button button-quiet" data-ar-act="download">Unduh JSON</button></div>`;
+      if (window.innerWidth <= 1100) $('#ar-result').scrollIntoView({ behavior: 'smooth' });
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function arClick(e) {
+    const t = e.target.closest('[data-ar-tab],[data-ar-v],[data-ar-act],[data-ar-copy]');
+    if (!t || t.disabled) return;
+    if (t.dataset.arTab !== undefined) { ar.active = +t.dataset.arTab; arShowEx = false; saveAr(); renderArTabs(); renderArStep(); return; }
+    if (t.dataset.arV !== undefined) {
+      const layer = AR_LAYERS[ar.active][0];
+      if (ar.sel[layer] === t.dataset.arV) delete ar.sel[layer]; else { ar.sel[layer] = t.dataset.arV; if (ar.active < AR_LAYERS.length - 1) ar.active++; }
+      arShowEx = false; saveAr(); renderArTabs(); renderArStep(); return;
+    }
+    if (t.dataset.arCopy !== undefined) {
+      const text = arStore[t.dataset.arCopy] || '';
+      if (await copyText(text)) toast('Disalin ke clipboard.', 'success'); else showCopyFallback(text);
+      return;
+    }
+    const act = t.dataset.arAct;
+    if (act === 'guide') { const g = $('#ar-guide'); g.classList.toggle('hidden'); t.setAttribute('aria-expanded', String(!g.classList.contains('hidden'))); }
+    else if (act === 'skip') { const layer = AR_LAYERS[ar.active][0]; delete ar.sel[layer]; if (ar.active < AR_LAYERS.length - 1) ar.active++; arShowEx = false; saveAr(); renderArTabs(); renderArStep(); }
+    else if (act === 'examples') { arShowEx = !arShowEx; if (arShowEx) { t.textContent = 'Sembunyikan contoh'; await loadArExamples(); } else { t.textContent = 'Lihat contoh tesis'; $('#ar-examples').innerHTML = ''; } }
+    else if (act === 'generate') await generateArahRiset();
+    else if (act === 'reset') { ar = { sel: {}, active: 0, extra: '' }; arShowEx = false; arLast = null; saveAr(); renderArTabs(); renderArStep(); $('#ar-result').innerHTML = '<div class="empty-state">Belum ada hasil. Pilih beberapa hal, lalu tekan Buat hasil.</div>'; }
+    else if (act === 'download' && arLast) {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(arLast, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'arah-riset.json'; a.click(); URL.revokeObjectURL(url);
+    }
+  }
+
   function attachEvents() {
     $$('.nav-item').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.target)));
     $$('[data-go]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.go)));
+    $('#arah-riset').addEventListener('click',arClick);
+    $('#arah-riset').addEventListener('input',e=>{if(e.target.id==='ar-extra'){ar.extra=e.target.value;saveAr();}});
     $('#project-form').addEventListener('submit',e=>{e.preventDefault();saveMetaFromForm(true);});
     $('#upload-form').addEventListener('submit',handleUpload);
     $('#run-synthesis').addEventListener('click',handleSynthesis);
