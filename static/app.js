@@ -331,14 +331,16 @@
     if (!target || !$('#' + target)) return;
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
-    const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
+    const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', 'design-diagram':'Diagram Taksonomi', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
     $('#breadcrumb-current').textContent = labels[target] || target;
     window.scrollTo({top:0, behavior:'smooth'});
+    try { history.replaceState(null, '', '#' + target); } catch (_) { /* abaikan */ }
     if (target === 'arah-riset') renderArahRiset();
     if (target === 'articles') renderArticles();
     if (target === 'prisma') renderPrisma();
     if (target === 'taxonomy') renderTaxonomy();
     if (target === 'design') renderDesign();
+    if (target === 'design-diagram') renderDesignDiagram();
     if (target === 'cooccurrence') renderCooccurrence();
     if (target === 'system-map') renderSystemMap();
     if (target === 'synthesis') renderSynthesis();
@@ -1579,7 +1581,238 @@ ${refnote}
     }
   }
 
+  // ===== Diagram taksonomi desain riset (halaman "Diagram Taksonomi") =====
+  // Memvisualkan pohon dari /api/design-taxonomy sebagai diagram SVG (pohon horizontal atau radial).
+  // SVG memakai warna literal (bukan variabel CSS) agar hasil unduhan SVG/PNG berdiri sendiri.
+  const DG = {layout: 'tree', collapsed: new Set(), selected: null, zoom: 1, fit: true, root: null, key: '', W: 0, H: 0, req: 0};
+  const DG_BRANCH = {
+    dark: {root: '#f3f1e7', metodologi: '#9fd09f', strategi: '#86b4d8', teknik: '#e8906e', fondasi: '#dcb85c'},
+    light: {root: '#111111', metodologi: '#2f7a2f', strategi: '#1f5f8f', teknik: '#b4491f', fondasi: '#8a6410'},
+  };
+  const DG_PAL = {
+    dark: {bg: '#0d0d0c', text: '#d6d4cb', dim: '#8b8b82', nodeFill: '#141413', nodeStroke: '#46463f', rootText: '#0d0d0c', sel: '#f3f1e7'},
+    light: {bg: '#FFFFFF', text: '#111111', dim: '#555555', nodeFill: '#F5F5F2', nodeStroke: '#BBBBBB', rootText: '#FFFFFF', sel: '#000000'},
+  };
+  const DG_KIND = {root: 'Topik (akar)', branch: 'Cabang', group: 'Kelompok', family: 'Keluarga teknik', value: 'Kategori', technique: 'Teknik', more: 'Ringkasan'};
+  const DG_FONT = "'IBM Plex Mono', Consolas, Menlo, monospace"; // monospace: lebar karakter ~0,6 em dipakai di dgW dan sunburst
+  const dgVK = n => DG.collapsed.has(n.id) ? [] : n.children;
+  const dgTrunc = (s, m = 40) => { s = String(s || ''); return s.length > m ? s.slice(0, m - 1) + '…' : s; };
+  const dgW = n => {
+    const t = dgTrunc(n.name).length * (n.kind === 'root' ? 8.2 : n.kind === 'branch' ? 7.6 : 7.3);
+    return Math.round(t + (n.kind === 'root' ? 32 : 30) + (n.count > 0 && n.kind !== 'root' ? 30 : 0));
+  };
+
+  function dgPrep(node, depth, branch, path) {
+    const id = path ? `${path}/${node.id}` : String(node.id);
+    const br = depth === 1 ? node.id : branch;
+    const CAP = 15;
+    // Simpul tanpa artikel (dan tanpa turunan yang punya artikel) tidak digambar. Cabang kosong tetap terlihat di tab Taksonomi Desain Riset.
+    const alive = k => (k.count || 0) > 0 || list(k.children).some(alive);
+    const kids = list(node.children).filter(alive);
+    const techs = kids.filter(k => k.kind === 'technique');
+    const out = [...kids.filter(k => k.kind !== 'technique'), ...techs.slice(0, CAP)].map(k => dgPrep(k, depth + 1, br, id));
+    if (techs.length > CAP) {
+      const hidden = techs.slice(CAP);
+      out.push({id: id + '/~more', name: `+ ${hidden.length} teknik lain`, kind: 'more', count: 0, definition: 'Daftar lengkap ada pada Unduh JSON di halaman Taksonomi Desain Riset.', note: hidden.map(h => h.name).join('; '), article_ids: [], inferred_count: 0, children: [], depth: depth + 1, branch: br});
+    }
+    return {id, name: node.name, kind: node.kind, count: node.count || 0, definition: node.definition || '', note: node.note || '', article_ids: list(node.article_ids), inferred_count: node.inferred_count || 0, children: out, depth, branch: br};
+  }
+  function dgWalk(n, fn) { fn(n); n.children.forEach(k => dgWalk(k, fn)); }
+  function dgVWalk(n, fn) { fn(n); dgVK(n).forEach(k => dgVWalk(k, fn)); }
+  function dgFind(id) { let hit = null; if (DG.root) dgWalk(DG.root, n => { if (n.id === id) hit = n; }); return hit; }
+
+  function dgNodeSvg(n, pal, bc, x, y, rot, x0, dir) {
+    const col = bc[n.branch] || bc.root, w = n._w, sel = DG.selected === n.id;
+    const isRoot = n.kind === 'root', isBranch = n.kind === 'branch', isMore = n.kind === 'more';
+    const fill = isRoot ? col : pal.nodeFill;
+    const stroke = sel ? pal.sel : isBranch ? col : isRoot ? col : pal.nodeStroke;
+    const sw = sel ? 2.6 : isBranch ? 1.8 : 1;
+    const tcol = isRoot ? pal.rootText : isBranch ? col : isMore ? pal.dim : pal.text;
+    const weight = isRoot ? 800 : isBranch ? 700 : 500;
+    const tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
+    let g = `<g class="dg-node" data-id="${esc(n.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot.toFixed(2)})" style="cursor:pointer"><title>${esc(tip)}</title>`;
+    g += `<rect x="${x0}" y="-12" width="${w}" height="24" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${isMore ? ' stroke-dasharray="4 3"' : ''}/>`;
+    if (!isRoot && !isBranch && !isMore) g += `<rect x="${x0 + 7}" y="-3" width="6" height="6" fill="${col}"/>`;
+    g += `<text x="${x0 + (isRoot || isBranch || isMore ? 12 : 19)}" y="4.2" font-family="${DG_FONT}" font-size="${isRoot ? 13 : 12}" font-weight="${weight}"${isMore ? ' font-style="italic"' : ''} fill="${tcol}">${esc(dgTrunc(n.name))}</text>`;
+    if (n.count > 0 && !isRoot) {
+      g += `<rect x="${x0 + w - 28}" y="-8.5" width="23" height="17" rx="0" fill="${col}" fill-opacity="0.18"/><text x="${x0 + w - 16.5}" y="4" text-anchor="middle" font-family="${DG_FONT}" font-size="11" font-weight="700" fill="${col}">${n.count}</text>`;
+    }
+    if (n.children.length && !isRoot) {
+      const cx = dir > 0 ? x0 + w + 9 : x0 - 9;
+      g += `<g class="dg-toggle" data-id="${esc(n.id)}"><rect x="${cx - 7.5}" y="-7.5" width="15" height="15" fill="${pal.bg}" stroke="${col}" stroke-width="1.4"/><text x="${cx}" y="4" text-anchor="middle" font-family="${DG_FONT}" font-size="12" font-weight="700" fill="${col}">${DG.collapsed.has(n.id) ? '+' : '−'}</text></g>`;
+    }
+    return g + '</g>';
+  }
+
+  function dgSizes(root) {
+    const cols = [];
+    (function f(n, d) { n._w = dgW(n); cols[d] = Math.max(cols[d] || 0, n._w + (n.children.length && n.kind !== 'root' ? 18 : 0)); dgVK(n).forEach(k => f(k, d + 1)); })(root, 0);
+    return cols;
+  }
+
+  function dgBuild(theme) {
+    const root = DG.root, pal = DG_PAL[theme], bc = DG_BRANCH[theme], cols = dgSizes(root);
+    const links = [], nodes = [];
+    let W, H, tx, ty;
+    if (DG.layout === 'tree') {
+      const ROW = 31, GAP = 62, PAD = 28;
+      const xs = []; cols.forEach((w, i) => { xs[i] = i ? xs[i - 1] + cols[i - 1] + GAP : 0; });
+      let cursor = 0;
+      (function pos(n, d) {
+        const kids = dgVK(n); n._x = xs[d];
+        if (!kids.length) { n._y = cursor + ROW / 2; cursor += ROW; }
+        else { kids.forEach(k => pos(k, d + 1)); n._y = (kids[0]._y + kids[kids.length - 1]._y) / 2; }
+      })(root, 0);
+      dgVWalk(root, n => {
+        const col = bc[n.branch] || bc.root, kids = dgVK(n);
+        const startX = n._x + n._w + (n.children.length && n.kind !== 'root' ? 18 : 0);
+        kids.forEach(k => {
+          const xm = (startX + k._x) / 2;
+          links.push(`<path d="M${startX} ${n._y.toFixed(1)} C${xm} ${n._y.toFixed(1)} ${xm} ${k._y.toFixed(1)} ${k._x} ${k._y.toFixed(1)}" fill="none" stroke="${col}" stroke-opacity="0.5" stroke-width="1.4"/>`);
+        });
+        nodes.push(dgNodeSvg(n, pal, bc, n._x, n._y, 0, 0, 1));
+      });
+      W = xs[xs.length - 1] + cols[cols.length - 1] + PAD * 2 + 12; H = Math.max(cursor, ROW) + PAD * 2; tx = PAD; ty = PAD;
+    } else {
+      // Sunburst: cincin = kedalaman, lebar busur sebanding dengan jumlah daun yang tampil
+      const labLen = [];
+      dgVWalk(root, n => { labLen[n.depth] = Math.max(labLen[n.depth] || 0, dgTrunc(n.name, 26).length); });
+      const maxD = labLen.length - 1, R0 = 82, inner = [0, R0], outer = [R0];
+      for (let d = 1; d <= maxD; d++) { const T = Math.min(190, Math.max(100, labLen[d] * 7.2 + 24)); outer[d] = inner[d] + T; inner[d + 1] = outer[d]; }
+      const wt = n => { const k = dgVK(n); n._wt = k.length ? k.reduce((t, c) => t + wt(c), 0) : 1; return n._wt; };
+      wt(root);
+      (function pos(n, a0, a1) {
+        n._a0 = a0; n._a1 = a1; let cur = a0;
+        dgVK(n).forEach(k => { const span = (a1 - a0) * k._wt / n._wt; pos(k, cur, cur + span); cur += span; });
+      })(root, -Math.PI / 2, 1.5 * Math.PI);
+      const P = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
+      const arc = (r0, r1, a0, a1) => {
+        a1 = Math.min(a1, a0 + 2 * Math.PI - 0.002);
+        const [x0, y0] = P(r1, a0), [x1, y1] = P(r1, a1), [x2, y2] = P(r0, a1), [x3, y3] = P(r0, a0), lg = a1 - a0 > Math.PI ? 1 : 0;
+        return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r1} ${r1} 0 ${lg} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}A${r0} ${r0} 0 ${lg} 0 ${x3.toFixed(1)} ${y3.toFixed(1)}Z`;
+      };
+      dgVWalk(root, n => {
+        const col = bc[n.branch] || bc.root, tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
+        if (n.kind === 'root') {
+          const words = String(n.name).split(/\s+/), lines = []; let cur = '';
+          words.forEach(w => { if ((cur + ' ' + w).trim().length > 13 && cur) { lines.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); });
+          if (cur) lines.push(cur);
+          const ls = lines.slice(0, 3).map((t, i, arr) => `<tspan x="0" y="${((i - (arr.length - 1) / 2) * 15 + 4).toFixed(1)}">${esc(dgTrunc(t, 16))}</tspan>`).join('');
+          nodes.push(`<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><circle r="${R0 - 2}" fill="${col}" stroke="${DG.selected === n.id ? pal.sel : pal.bg}" stroke-width="${DG.selected === n.id ? 3 : 2}"/><text text-anchor="middle" font-family="${DG_FONT}" font-size="12" font-weight="800" fill="${pal.rootText}">${ls}</text></g>`);
+          return;
+        }
+        const r0 = inner[n.depth] + 1, r1 = outer[n.depth] - 1, sel = DG.selected === n.id, solid = n.depth === 1;
+        const op = solid ? 0.95 : n.depth === 2 ? 0.5 : 0.3;
+        const am = (n._a0 + n._a1) / 2, rm = (r0 + r1) / 2, arcLen = (n._a1 - n._a0) * rm;
+        let g = `<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><path d="${arc(r0, r1, n._a0, n._a1)}" fill="${col}" fill-opacity="${op}" stroke="${sel ? pal.sel : pal.bg}" stroke-width="${sel ? 2.6 : 1.5}"/>`;
+        if (arcLen >= 15 && (n._a1 - n._a0) > 0.012) {
+          const flip = Math.cos(am) < 0, [tx0, ty0] = P(rm, am), deg = am * 180 / Math.PI + (flip ? 180 : 0);
+          const cap = Math.max(4, Math.floor((r1 - r0 - 14) / 7.2)), label = dgTrunc(n.name + (n.count ? ` (${n.count})` : ''), cap);
+          g += `<text transform="translate(${tx0.toFixed(1)},${ty0.toFixed(1)}) rotate(${deg.toFixed(2)})" text-anchor="middle" y="4" font-family="${DG_FONT}" font-size="12" font-weight="${solid ? 700 : 500}" fill="${solid ? pal.rootText : pal.text}">${esc(label)}</text>`;
+        }
+        nodes.push(g + '</g>');
+      });
+      W = H = Math.ceil(outer[maxD] * 2 + 56); tx = W / 2; ty = H / 2;
+    }
+    DG.W = Math.ceil(W); DG.H = Math.ceil(H);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${DG.W} ${DG.H}" width="${DG.W}" height="${DG.H}" role="img" aria-label="Diagram taksonomi desain riset"><rect width="100%" height="100%" fill="${pal.bg}"/><g transform="translate(${tx},${ty})">${links.join('')}${nodes.join('')}</g></svg>`;
+    return svg;
+  }
+
+  function dgPaint() {
+    const box = $('#dg-canvas'); if (!box || !DG.root) return;
+    const sx = box.scrollLeft, sy = box.scrollTop;
+    box.innerHTML = dgBuild('dark');
+    if (DG.fit) DG.zoom = Math.max(0.3, Math.min(1, ((box.clientWidth || DG.W) - 24) / DG.W));
+    const el = box.querySelector('svg');
+    el.setAttribute('width', Math.round(DG.W * DG.zoom)); el.setAttribute('height', Math.round(DG.H * DG.zoom));
+    box.scrollLeft = sx; box.scrollTop = sy;
+    $$('[data-dg-layout]').forEach(b => b.classList.toggle('active', b.dataset.dgLayout === DG.layout));
+  }
+
+  function dgDetail(id) {
+    const n = dgFind(id), box = $('#dg-detail'); if (!n || !box) return;
+    const arts = list(n.article_ids).map(findArticle).filter(Boolean);
+    const lines = arts.slice(0, 40).map(a => `<li><span class="dg-ref">[${esc(designRefs[a.id] || '?')}]</span> ${esc(a.title || '(tanpa judul)')} <span class="dim">(${esc(a.year || 'n.d.')})</span></li>`).join('');
+    box.innerHTML = `<div class="dg-d-kind">${esc(DG_KIND[n.kind] || n.kind)}</div><h3>${esc(n.name)}</h3>`
+      + (n.count ? `<div class="dg-d-count">${n.count} artikel${n.inferred_count ? ` · ${n.inferred_count} disimpulkan AI` : ''}</div>` : '')
+      + (n.definition ? `<p>${esc(n.definition)}</p>` : '') + (n.note ? `<p class="dg-d-note">${esc(n.note)}</p>` : '')
+      + (lines ? `<ol class="dg-d-list">${lines}</ol>${arts.length > 40 ? `<div class="dg-hint">+ ${arts.length - 40} artikel lain</div>` : ''}` : '');
+  }
+
+  function dgLegend(res) {
+    const bc = DG_BRANCH.dark;
+    const items = list(res.tree.children).map(b => `<div class="dg-lg"><i style="background:${bc[b.id] || bc.root}"></i><span>${esc(b.name)}</span></div>`).join('');
+    let total = 0, shown = 0; dgWalk(DG.root, () => { total++; }); const walk = n => { shown++; dgVK(n).forEach(walk); }; walk(DG.root);
+    $('#dg-legend').innerHTML = `<div class="dg-d-kind">LEGENDA</div><div class="dg-lg-row">${items}</div>`
+      + `<ul class="dg-notes"><li>Angka pada simpul = jumlah artikel.</li><li><b>+</b> / <b>−</b> atau klik dua kali = buka / tutup cabang.</li><li>Satu artikel boleh masuk ke beberapa simpul.</li><li>Menampilkan ${shown} dari ${total} simpul.</li></ul>`;
+  }
+
+  async function renderDesignDiagram() {
+    const box = $('#dg-canvas'); if (!box) return;
+    state.designUi = {topic: '', scope: 'notexcluded', ...(state.designUi || {})};
+    const arts = designScopeArticles(), mine = ++DG.req;
+    const empty = msg => { DG.root = null; box.innerHTML = `<div class="empty-state">${msg}</div>`; $('#dg-legend').innerHTML = ''; };
+    if (!arts.length) { $('#dg-meta').textContent = 'Belum ada artikel pada cakupan ini.'; empty('Belum ada artikel. Unggah PDF di Ikhtisar, lalu kembali ke halaman ini.'); return; }
+    $('#dg-meta').textContent = 'Menyusun diagram…';
+    let res;
+    try {
+      res = await api('/api/design-taxonomy', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({articles: arts, topic: state.designUi.topic, normalization: normState().approved})});
+    } catch (e) { if (mine === DG.req) { $('#dg-meta').textContent = 'Gagal.'; empty(esc(e.message || 'Gagal menyusun diagram taksonomi.')); } return; }
+    if (mine !== DG.req) return;
+    if (!res.n_with_design) { $('#dg-meta').textContent = 'Belum ada label desain riset.'; empty('Belum ada artikel dengan label desain riset pada cakupan ini.'); return; }
+    designRefs = {}; arts.forEach((a, i) => { designRefs[a.id] = i + 1; });
+    DG.res = res; DG.root = dgPrep(res.tree, 0, '', '');
+    const key = [res.n_with_design, state.designUi.topic, state.designUi.scope, res.tree.name].join('|');
+    if (DG.key !== key) { DG.key = key; DG.selected = null; DG.fit = true; DG.collapsed = new Set(); dgWalk(DG.root, n => { if (n.depth >= 3 && n.children.length) DG.collapsed.add(n.id); }); }
+    const scopes = {notexcluded: 'semua kecuali yang di-EXCLUDE', all: 'semua artikel', included: 'hanya INCLUDE'};
+    $('#dg-meta').innerHTML = `Topik: <b>${esc(res.tree.name)}</b> · ${esc(res.n_with_design)} artikel · cakupan: ${esc(scopes[state.designUi.scope] || state.designUi.scope)} · codebook ${esc(res.codebook_version)}`;
+    dgLegend(res); dgPaint();
+    if (DG.selected && dgFind(DG.selected)) dgDetail(DG.selected);
+  }
+
+  function dgToggle(id) {
+    const n = dgFind(id); if (!n || !n.children.length || n.kind === 'root') return;
+    if (DG.collapsed.has(id)) DG.collapsed.delete(id); else DG.collapsed.add(id);
+    dgLegend(DG.res); dgPaint();
+  }
+  function dgDownload(kind) {
+    if (!DG.root) { toast('Belum ada diagram untuk diunduh.', 'error'); return; }
+    const theme = $('#dg-light').checked ? 'light' : 'dark', svg = dgBuild(theme);
+    dgPaint();   // dgBuild memperbarui ukuran; gambar layar tetap tema gelap
+    const slug = String((state.designUi || {}).topic || 'topik').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'topik';
+    const save = (blob, ext) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `diagram-taksonomi-${slug}.${ext}`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+    if (kind === 'svg') { save(new Blob([svg], {type: 'image/svg+xml;charset=utf-8'}), 'svg'); return; }
+    const scale = Math.min(2, 8000 / Math.max(DG.W, DG.H)), img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = Math.round(DG.W * scale); c.height = Math.round(DG.H * scale);
+      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? save(b, 'png') : toast('Gagal membuat PNG. Gunakan unduhan SVG.', 'error'), 'image/png');
+    };
+    img.onerror = () => toast('Gagal membuat PNG. Gunakan unduhan SVG.', 'error');
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+  function attachDiagramEvents() {
+    const cv = $('#dg-canvas'); if (!cv) return;
+    cv.addEventListener('click', e => {
+      const tg = e.target.closest('.dg-toggle'); if (tg) { dgToggle(tg.dataset.id); return; }
+      const nd = e.target.closest('.dg-node'); if (!nd) return;
+      DG.selected = nd.dataset.id; dgPaint(); dgDetail(DG.selected);
+    });
+    cv.addEventListener('dblclick', e => { const nd = e.target.closest('.dg-node'); if (nd) dgToggle(nd.dataset.id); });
+    $$('[data-dg-layout]').forEach(b => b.addEventListener('click', () => { DG.layout = b.dataset.dgLayout; DG.fit = true; dgPaint(); }));
+    $('#dg-expand').addEventListener('click', () => { if (!DG.root) return; DG.collapsed.clear(); dgLegend(DG.res); DG.fit = true; dgPaint(); });
+    $('#dg-collapse').addEventListener('click', () => { if (!DG.root) return; dgWalk(DG.root, n => { if (n.depth >= 1 && n.children.length) DG.collapsed.add(n.id); }); dgLegend(DG.res); DG.fit = true; dgPaint(); });
+    $('#dg-zoom-in').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.min(2.5, DG.zoom * 1.2); dgPaint(); });
+    $('#dg-zoom-out').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.max(0.2, DG.zoom / 1.2); dgPaint(); });
+    $('#dg-fit').addEventListener('click', () => { DG.fit = true; dgPaint(); });
+    $('#dg-svg').addEventListener('click', () => dgDownload('svg'));
+    $('#dg-png').addEventListener('click', () => dgDownload('png'));
+    window.addEventListener('resize', () => { if (DG.root && DG.fit && $('#design-diagram').classList.contains('active-section')) dgPaint(); });
+  }
+
   function attachEvents() {
+    attachDiagramEvents();
     $$('.nav-item').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.target)));
     $$('[data-go]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.go)));
     $('#arah-riset').addEventListener('click',arClick);
@@ -1598,7 +1831,7 @@ ${refnote}
     const dz=$('#dropzone');
     ['dragenter','dragover'].forEach(name=>dz.addEventListener(name,e=>{e.preventDefault();dz.classList.add('dragging');}));
     ['dragleave','drop'].forEach(name=>dz.addEventListener(name,e=>{e.preventDefault();dz.classList.remove('dragging');}));
-    dz.addEventListener('drop',e=>{const files=Array.from(e.dataTransfer.files||[]).filter(f=>f.name.toLowerCase().endsWith('.pdf'));if(!files.length){toast('File yang dijatuhkan bukan PDF.', 'error');return;}const transfer=new DataTransfer();files.slice(0,8).forEach(f=>transfer.items.add(f));$('#pdf-files').files=transfer.files;renderSelectedFiles();});
+    dz.addEventListener('drop',e=>{const all=Array.from(e.dataTransfer.files||[]).filter(f=>f.name.toLowerCase().endsWith('.pdf'));if(!all.length){toast('File yang dijatuhkan bukan PDF.', 'error');return;}const max=serverLimits.maxFiles,files=all.slice(0,max);const transfer=new DataTransfer();files.forEach(f=>transfer.items.add(f));$('#pdf-files').files=transfer.files;renderSelectedFiles();if(all.length>max)toast(`Hanya ${max} PDF pertama yang dipilih (batas per batch). ${all.length-max} file lain tidak ikut; unggah di batch berikutnya.`, 'error');});
     $('#articles-body').addEventListener('change',handleDecisionChange);
     $('#articles-body').addEventListener('click',e=>{const b=e.target.closest('[data-detail]');if(b)renderArticleDetail(b.dataset.detail);});
     $('#article-search').addEventListener('input',renderArticles);
@@ -1628,6 +1861,8 @@ ${refnote}
   document.addEventListener('DOMContentLoaded',()=>{
     // This script is deferred; DOM is ready by the time it runs in modern browsers.
     applyMeta(state.meta);attachEvents();renderAll();checkHealth();loadCodebook();
+    const h=location.hash.slice(1);const hs=h&&document.getElementById(h);if(hs&&hs.classList.contains('page-section'))navigate(h);
+    window.addEventListener('hashchange',()=>{const t=location.hash.slice(1),el=t&&document.getElementById(t);if(el&&el.classList.contains('page-section')&&!el.classList.contains('active-section'))navigate(t);});
     if (!state.meta.search_date) { const d=new Date();$('#search-date').value=d.toISOString().slice(0,10); }
   });
 })();

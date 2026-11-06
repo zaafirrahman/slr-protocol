@@ -10,8 +10,8 @@ const errsExtra = []; const results = []; const check = (name, ok, detail = '') 
 async function boot(project) {
   const errors = [], vc = new VirtualConsole();
   vc.on('jsdomError', e => errors.push('jsdomError: ' + (e.detail || e.message || e)));
-  const html = await (await fetch(base + '/')).text();
-  const w = new JSDOM(html, {url: base + '/', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc}).window;
+  const html = await (await fetch(base + '/app')).text();
+  const w = new JSDOM(html, {url: base + '/app', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc}).window;
   w.fetch = (u, o) => fetch(base + u, o); w.scrollTo = () => {};
   w.structuredClone = w.structuredClone || (x => JSON.parse(JSON.stringify(x)));
   let captured = null; w.URL.createObjectURL = b => { captured = b; return 'blob:x'; }; w.URL.revokeObjectURL = () => {};

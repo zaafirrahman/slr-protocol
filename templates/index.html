@@ -16,6 +16,7 @@
         <img class="brand-logo" src="{{ url_for('static', filename='slr.png') }}" alt="SLR Protocol">
         <span><strong>SLR Protocol</strong><small>literature review</small></span>
       </a>
+      <a class="sidebar-home" href="/">← Beranda</a>
       <nav class="side-nav side-nav-solo" aria-label="Arah riset">
         <button class="nav-item" data-target="arah-riset"><span class="nav-icon">00</span> Arah Riset <span class="nav-count" title="Khusus TMI ITB">TMI</span></button>
       </nav>
@@ -24,14 +25,15 @@
         <button class="nav-item active" data-target="overview"><span class="nav-icon">01</span> Ikhtisar</button>
         <button class="nav-item" data-target="articles"><span class="nav-icon">02</span> Artikel <span class="nav-count" id="nav-article-count">0</span></button>
         <button class="nav-item" data-target="design"><span class="nav-icon">03</span> Taksonomi Desain Riset</button>
+        <button class="nav-item" data-target="design-diagram"><span class="nav-icon">04</span> Diagram Taksonomi</button>
       </nav>
       <div class="workspace-label workspace-label-sub">SLR LANJUTAN</div>
       <nav class="side-nav" aria-label="Tahap SLR lanjutan">
-        <button class="nav-item" data-target="prisma"><span class="nav-icon">04</span> PRISMA Flow</button>
-        <button class="nav-item" data-target="synthesis"><span class="nav-icon">05</span> Review Synthesis</button>
-        <button class="nav-item" data-target="taxonomy"><span class="nav-icon">06</span> Peta Topik</button>
-        <button class="nav-item" data-target="cooccurrence"><span class="nav-icon">07</span> Co-occurrence</button>
-        <button class="nav-item" data-target="system-map"><span class="nav-icon">08</span> System Map</button>
+        <button class="nav-item" data-target="prisma"><span class="nav-icon">05</span> PRISMA Flow</button>
+        <button class="nav-item" data-target="synthesis"><span class="nav-icon">06</span> Review Synthesis</button>
+        <button class="nav-item" data-target="taxonomy"><span class="nav-icon">07</span> Peta Topik</button>
+        <button class="nav-item" data-target="cooccurrence"><span class="nav-icon">08</span> Co-occurrence</button>
+        <button class="nav-item" data-target="system-map"><span class="nav-icon">09</span> System Map</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="private-card"><span class="private-dot"></span><div><strong>Workspace pribadi</strong><small>Data proyek tersimpan di browser ini</small></div></div>
@@ -107,7 +109,7 @@
         </section>
 
         <section id="arah-riset" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">ARAH RISET</p><h1>Arah riset</h1><p class="page-subtitle">Belum punya topik? Pilih arah dari <span id="ar-total">…</span> tesis Teknik dan Manajemen Industri ITB, lalu dapatkan topik, research question, search query, dan kriteria inklusi/eksklusi. Khusus TMI; hasilnya arah awal, bukan topik final.</p></div><button class="button button-secondary" data-ar-act="guide" aria-expanded="false">Cara pakai</button></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">ARAH RISET</p><h1>Arah riset</h1><p class="page-subtitle">Belum punya topik? Pilih arah dari <span id="ar-total">…</span> tesis TMI ITB, lalu dapatkan topik, research question, search query, dan kriteria inklusi/eksklusi. Khusus TMI; hasilnya arah awal, bukan topik final.</p></div><button class="button button-secondary" data-ar-act="guide" aria-expanded="false">Cara pakai</button></div>
           <div id="ar-guide" class="panel ar-guide hidden">
             <p>Jawab dari kiri ke kanan, atau klik tab untuk kembali ke pertanyaan sebelumnya. Klik opsi untuk memilih, klik lagi untuk membatalkan. Angka di samping opsi adalah jumlah tesis TMI.</p>
             <p><b>Belum tahu</b> melewati pertanyaan tanpa memilih. Layer yang dilewati tidak masuk ke query.</p>
@@ -156,7 +158,7 @@
         </section>
 
         <section id="design" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">RESEARCH ONION</p><h1>Taksonomi desain riset</h1><p class="page-subtitle">Metodologi, strategi, dan teknik dari artikel, disusun menurut lapisan research onion (Saunders dkk.). Dihitung oleh kode dari label hasil ekstraksi, tanpa AI dan tanpa biaya token.</p></div></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">RESEARCH ONION</p><h1>Taksonomi desain riset</h1><p class="page-subtitle">Metodologi, strategi, dan teknik dari artikel, disusun menurut lapisan research onion (Saunders dkk.). Dihitung oleh kode dari label hasil ekstraksi, tanpa AI dan tanpa biaya token.</p></div><div class="title-actions"><button class="button" data-go="design-diagram">Lihat sebagai diagram →</button></div></div>
           <div id="design-steps" class="panel design-steps"></div>
           <div class="panel design-controls">
             <label class="design-field"><span>Nama topik (akar taksonomi)</span><input id="design-topic" type="text" maxlength="200" placeholder="mis. Predict-then-Optimize"></label>
@@ -168,6 +170,27 @@
           <div id="design-tree" class="panel design-panel"><div class="empty-state">Unggah artikel terlebih dahulu.</div></div>
           <div id="design-matrix" class="panel design-panel hidden"></div>
           <div id="design-basis" class="panel design-panel hidden"></div>
+        </section>
+
+        <section id="design-diagram" class="page-section">
+          <div class="section-heading page-title-row"><div><p class="eyebrow">VISUALISASI TAKSONOMI</p><h1>Diagram taksonomi desain riset</h1><p class="page-subtitle">Visualisasi hasil taksonomi desain riset: Metodologi, Strategi, Teknik &amp; prosedur, dan Fondasi. Angka pada simpul = jumlah artikel.</p></div><div class="title-actions"><button class="button button-secondary" data-go="design">← Taksonomi (teks)</button></div></div>
+          <div class="panel dg-toolbar">
+            <div class="dg-meta" id="dg-meta">Belum ada data.</div>
+            <div class="dg-controls">
+              <div class="dg-seg" role="tablist" aria-label="Bentuk diagram"><button type="button" class="dg-seg-btn active" data-dg-layout="tree">Pohon</button><button type="button" class="dg-seg-btn" data-dg-layout="sunburst">Sunburst</button></div>
+              <button type="button" class="button button-quiet button-small" id="dg-zoom-out" title="Perkecil">−</button><button type="button" class="button button-quiet button-small" id="dg-zoom-in" title="Perbesar">+</button><button type="button" class="button button-quiet button-small" id="dg-fit">Pas</button>
+              <button type="button" class="button button-quiet button-small" id="dg-expand">Buka semua</button>
+              <button type="button" class="button button-quiet button-small" id="dg-collapse">Ciutkan</button>
+              <label class="dg-check" title="Berlaku untuk unduhan SVG/PNG"><input type="checkbox" id="dg-light"> Latar terang (unduhan)</label>
+              <button type="button" class="button button-small" id="dg-svg">Unduh SVG ↗</button>
+              <button type="button" class="button button-small" id="dg-png">Unduh PNG ↗</button>
+            </div>
+          </div>
+          <div class="panel dg-panel"><div id="dg-canvas" class="dg-canvas"><div class="empty-state">Unggah artikel terlebih dahulu.</div></div></div>
+          <div class="dg-bottom">
+            <div id="dg-legend" class="panel dg-legend"></div>
+            <div id="dg-detail" class="panel dg-detail"><div class="dg-hint">Klik sebuah simpul untuk melihat definisi dan artikelnya. Klik dua kali (atau klik lingkaran kecil +/−) untuk membuka atau menutup cabang.</div></div>
+          </div>
         </section>
 
         <section id="cooccurrence" class="page-section">

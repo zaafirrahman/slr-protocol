@@ -35,6 +35,8 @@ app.py                  Backend Flask. Config, provider AI, progres, biaya, prom
 templates/index.html    Satu halaman Jinja (hanya url_for untuk gambar). Semua tab ada di sini.
 static/app.js           Frontend: IIFE tunggal, state, render, upload, progres, popup token, ekspor/impor.
 static/style.css        Tema terminal (monokrom, font mono, variabel CSS).
+templates/landing.html  Landing page (halaman depan di `/`). Berdiri sendiri; CSS-nya `static/landing.css`, TIDAK memuat style.css.
+static/landing.css      Gaya landing saja. Tema terminal yang SAMA dengan workspace, tetapi `:root` disalin (bukan di-import): ubah warna/font di `style.css` = ubah juga di sini.
 arah_riset.py          Langkah 0 (khusus TMI ITB): mesin pertanyaan dan generator topik/RQ/query/kriteria. Murni komputasi, tanpa AI.
 arah_riset_data/        thesis_facets.json (facet tesis TMI) + vocab_en.json (istilah query bahasa Inggris). BUKAN di data/ karena data/ di-gitignore.
 requirements.txt        Flask, PyMuPDF, python-dotenv.
@@ -170,7 +172,8 @@ dengan baris final (token masuk/keluar, cache, detik, biaya). Retry dicatat seba
 
 | Route | Auth | Fungsi |
 |---|---|---|
-| `GET /` | ya | Halaman. |
+| `GET /` | ya | Landing page (`landing.html`). |
+| `GET /app` | ya | Workspace (`index.html`). Tombol di landing mengarah ke sini; `/app#<id-tab>` membuka tab langsung. |
 | `GET /api/health` | ya | Status AI + limits (`max_files_per_batch`, `max_file_mb`, `max_text_chars`, `synth_batch_size`, `keep_server_*`) + `pricing` (periode, waktu pergantian, tarif efektif; `null` untuk Ollama). |
 | `GET /api/test-ai` | ya | Satu panggilan kecil non-streaming untuk uji koneksi/JSON; mengembalikan `usage`. |
 
@@ -313,6 +316,28 @@ Untuk orang yang belum punya topik. Pengguna memilih dari kategori yang diturunk
   daftar itu diubah, `vocab_en.json` harus ikut diubah supaya setiap kategori punya istilah query.
 - Tes: `python tests/test_arah_riset.py` (tanpa jaringan).
 
+### 4.9 Diagram taksonomi dan navigasi hash
+
+Tab **Diagram Taksonomi** (id `design-diagram`) memvisualkan pohon dari `POST /api/design-taxonomy` (hasil yang SAMA dengan tab Taksonomi
+Desain Riset: tanpa AI, tanpa biaya token). Kode di `app.js`, blok "Diagram taksonomi desain riset" (awalan `dg`/`DG`).
+
+- Dua bentuk: pohon horizontal (kolom per kedalaman, cabang bisa dibuka/ditutup) dan sunburst (lebar busur = jumlah daun yang tampil).
+  Klik simpul = detail (definisi + artikel, nomor rujukan sama dengan tab Desain Riset); klik dua kali atau tombol +/- = buka/tutup.
+  Simpul tanpa artikel (jumlah 0 dan tanpa turunan ber-artikel) TIDAK digambar; cabang kosong tetap tampak di tab Taksonomi Desain Riset.
+  Cabang kedalaman >= 3 ciut secara bawaan; teknik per keluarga dibatasi 15, sisanya diringkas "+ N teknik lain".
+- SVG memakai **warna literal** (`DG_BRANCH`, `DG_PAL`), bukan variabel CSS, supaya unduhan SVG/PNG berdiri sendiri. Dua tema: `dark` (layar,
+  palet terminal workspace) dan `light` (unduhan, kotak "Latar terang"). Selaraskan manual bila tema workspace berubah.
+- Font diagram monospace dan lebar simpul DIPERKIRAKAN dari jumlah karakter (`dgW`, konstanta 7.3 px/karakter untuk 12 px); ganti font
+  = sesuaikan konstanta itu (dan `7.2` di sunburst), kalau tidak teks meluap dari kotaknya.
+- PNG dibuat dari SVG lewat canvas (maks 8000 px sisi terpanjang, skala <= 2). Font IBM Plex Mono tidak ikut tertanam di unduhan: bila tidak
+  terpasang di komputer pembuka, jatuh ke monospace lain.
+- **Navigasi hash**: `navigate()` menulis `#<id>` ke URL (`history.replaceState`), dan saat load/`hashchange` halaman dibuka dari hash. Berlaku untuk
+  semua tab, mis. `/app#design-diagram` atau `/app#arah-riset`. Tanpa hash, tampilan pertama tetap Ikhtisar.
+- Landing (`/`) bertema terminal sama dengan workspace. Dua ilustrasi diagramnya (pohon dan sunburst) adalah SVG statis berisi data contoh
+  generik, digambar dengan aturan yang sama dengan `dgBuild` (palet `DG_BRANCH`/`DG_PAL`, simpul persegi, font IBM Plex Mono). Ilustrasi itu
+  TIDAK dihasilkan dari kode saat runtime, jadi gambar ulang manual bila tampilan diagram berubah; legenda warna di bagian "Diagram
+  taksonomi" juga harus ikut.
+
 ## 5. Model data
 
 ### 5.1 Record artikel (hasil `/api/analyze`, disimpan di `state.articles`)
@@ -407,7 +432,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Area | Fungsi kunci |
 |---|---|
 | State & penyimpanan | `loadState`, `saveState`, `DEFAULT_STATE`, `STORE_KEY` |
-| Navigasi | `navigate(target)`, tombol `data-target`, 9 tab: "Arah Riset" (id `arah-riset`, berdiri sendiri di atas kedua grup tanpa label, lencana TMI, bukan bagian alur proyek) dan 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
+| Navigasi | `navigate(target)`, tombol `data-target`, 10 tab: "Arah Riset" (id `arah-riset`, berdiri sendiri di atas kedua grup tanpa label, lencana TMI, bukan bagian alur proyek) dan 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset", design-diagram "Diagram Taksonomi". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
 | Upload | `handleUpload`: validasi → pre-check duplikat (`sha256Hex` via `crypto.subtle`) → FormData + `job_id` → polling → merge artikel |
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
@@ -416,7 +441,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Backup | `exportProject`, `importProject` (`Ctrl/Cmd+Shift+O`), `downloadSvg`, cetak PRISMA |
 
 Hal yang perlu diingat:
-- **Batas upload dibaca dari `/api/health`** (`serverLimits`), bukan hardcode; teks di UI ikut menyesuaikan.
+- **Batas upload dibaca dari `/api/health`** (`serverLimits`), bukan hardcode; teks di UI ikut menyesuaikan. Termasuk handler drag-and-drop pada dropzone: ia memotong ke `serverLimits.maxFiles` dan memberi toast bila ada file yang tidak ikut (dulu memotong hardcode ke 8, sehingga seret-lepas hanya mengambil 8 PDF walau batas server 20).
 - **Pre-check duplikat** memakai SHA-256 isi file, identik dengan hash server (`hashlib.sha256`), dibandingkan
   dengan `state.articles[].hash`. Jika `crypto.subtle` tidak tersedia (konteks non-HTTPS selain localhost), langkah
   ini dilewati dan server tetap dedupe setelah panggilan AI.
@@ -458,6 +483,8 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 ## 10. Verifikasi dan pengujian
 
 Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (49-53 pengecekan pada data nyata, ekspektasinya dihitung dari state proyek, bukan diasumsikan).
+
+Tes rute dan Arah Riset (tanpa jaringan): `python tests/test_arah_riset.py` dan `python tests/test_routes.py`. Skrip jsdom memuat `/app` (bukan `/`, yang kini landing).
 
 Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
@@ -520,6 +547,7 @@ Urut kira-kira berdasarkan dampak:
 | Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py` |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
 | Mengubah kategori/istilah query Arah Riset | `arah_riset_data/vocab_en.json` (istilah, urutan = prioritas), `arah_riset.py` (`RQ_TEMPLATE`, kriteria, `max_ops`) |
+| Mengubah tampilan landing | `templates/landing.html` + `static/landing.css` (terpisah dari workspace; `:root`-nya salinan dari `style.css`) |
 | Menambah tab/halaman | `index.html` (tombol `data-target` + `section.page-section`), `navigate`/`renderAll` di `app.js` |
 | Mengubah tema | variabel `:root` di `style.css` + warna SVG di `app.js` |
 | Menambah kredensial/rahasia | `.env` (dan secret manager platform bila nanti ada deployment); jangan pernah commit nilainya |

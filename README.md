@@ -29,6 +29,8 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
 - **Arah Riset (khusus TMI ITB):** untuk yang belum punya topik. Pilih kelompok keilmuan, jenis masalah, sektor, dan metode dari
   kategori yang diturunkan dari tesis TMI terdahulu; hasilnya topik umum, research question, query ScienceDirect/Scopus, dan
   kriteria inklusi/eksklusi. Tanpa AI dan tanpa biaya token. Hasilnya arah awal, bukan topik final.
+- **Diagram taksonomi:** hasil taksonomi desain riset divisualkan sebagai pohon yang bisa dibuka/ditutup atau sunburst, dengan detail
+  artikel per simpul dan unduhan SVG/PNG (opsional latar terang untuk dicetak). Tanpa AI dan tanpa biaya token.
 - **Progres live** untuk analisis dan sintesis: persen berdasarkan langkah yang benar-benar selesai, log per
   panggilan AI (token, durasi, biaya), serta catatan retry bila jawaban terpotong.
 - **Popup pemakaian token** (klik chip token di pojok kanan atas): token, jumlah panggilan, estimasi biaya
@@ -57,7 +59,7 @@ cp .env.example .env               # lalu edit .env
 python app.py
 ```
 
-Buka http://127.0.0.1:5000. Untuk menguji koneksi AI tanpa upload PDF, buka `/api/test-ai`.
+Buka http://127.0.0.1:5000 (landing page); workspace ada di http://127.0.0.1:5000/app. Untuk menguji koneksi AI tanpa upload PDF, buka `/api/test-ai`.
 Pill status di pojok kanan atas harus menampilkan "Model siap".
 
 Secara bawaan server dapat dibuka dari perangkat lain di jaringan yang sama (`HOST=0.0.0.0`). Isi `HOST=127.0.0.1`

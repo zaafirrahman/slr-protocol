@@ -9,8 +9,8 @@ const [,, base = 'http://127.0.0.1:5055', projectJson = '-', appJs = 'static/app
   const errors = []; const vc = new VirtualConsole();
   vc.on('jsdomError', e => errors.push('jsdomError: ' + (e.detail || e.message || e)));
   vc.on('error', m => errors.push('console.error: ' + String(m).slice(0, 200)));
-  const html = await (await fetch(base + '/')).text();
-  const dom = new JSDOM(html, {url: base + '/', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc});
+  const html = await (await fetch(base + '/app')).text();
+  const dom = new JSDOM(html, {url: base + '/app', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: vc});
   const w = dom.window;
   w.fetch = (u, o) => fetch(base + u, o);
   w.scrollTo = () => {};

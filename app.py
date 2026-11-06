@@ -2010,6 +2010,13 @@ def filter_references(data, valid_ids):
 
 @app.get("/")
 @auth_guard
+def landing():
+    """Landing page. Workspace aplikasi ada di /app."""
+    return render_template("landing.html")
+
+
+@app.get("/app")
+@auth_guard
 def index():
     return render_template("index.html")
 
