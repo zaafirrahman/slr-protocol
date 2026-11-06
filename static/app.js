@@ -496,7 +496,7 @@
       <p class="citation-note">Dihasilkan ${esc(prettyDate(s.generated_at))} menggunakan model ${esc(s.model || 'lokal')}. Sintesis dibangun dari artikel yang secara manual ditandai INCLUDE pada dua tahap. Chip artikel menunjukkan judul singkat sumber dukungan; tetap buka PDF asli untuk mengonfirmasi klaim.</p>`;
   }
 
-  function svgText(text, x, y, size=12, weight=600, fill='#d6d4cb') {
+  function svgText(text, x, y, size=12, weight=600, fill='#e8e8e8') {
     return `<text x="${x}" y="${y}" text-anchor="middle" font-size="${size}" font-weight="${weight}" fill="${fill}">${esc(String(text || '').slice(0,38))}</text>`;
   }
   function renderHierarchySvg(root, nodes, edges, poly=false) {
@@ -516,9 +516,9 @@
       h=Math.max(250,(Math.max(...dv)+1)*105+30); bw=Math.max(84,Math.min(170,Math.floor(w/Math.max(...Object.values(perLevel)))-10));
       all.forEach((n,i)=>{const d=depth[i]||0;const same=all.map((_,j)=>j).filter(j=>(depth[j]||0)===d);const rank=same.indexOf(i);pos.push({x:(rank+1)*w/(same.length+1),y:45+d*105});});
     }
-    let svg=`<svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Diagram taxonomy"><defs><marker id="tax-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#8b8b82"/></marker></defs>`;
-    links.forEach(e=>{const a=pos[e.a],b=pos[e.b];svg+=`<path d="M${a.x} ${a.y+20} L${b.x} ${b.y-20}" stroke="#8b8b82" stroke-width="1.5" fill="none" marker-end="url(#tax-arrow)"/>`;});
-    all.forEach((n,i)=>{const q=pos[i],name=n.name||n.label||n.id||'Konsep';svg+=`<g><rect x="${q.x-bw/2}" y="${q.y-22}" width="${bw}" height="44" fill="${i===0?'#f3f1e7':'#141413'}" stroke="${i===0?'#f3f1e7':'#8b8b82'}"/><text x="${q.x}" y="${q.y+4}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10" font-weight="700" fill="${i===0?'#0d0d0c':'#d6d4cb'}">${esc(String(name).slice(0,Math.floor(bw/6.4)))}</text></g>`;});
+    let svg=`<svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Diagram taxonomy"><defs><marker id="tax-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#9a9a9a"/></marker></defs>`;
+    links.forEach(e=>{const a=pos[e.a],b=pos[e.b];svg+=`<path d="M${a.x} ${a.y+20} L${b.x} ${b.y-20}" stroke="#9a9a9a" stroke-width="1.5" fill="none" marker-end="url(#tax-arrow)"/>`;});
+    all.forEach((n,i)=>{const q=pos[i],name=n.name||n.label||n.id||'Konsep';svg+=`<g><rect x="${q.x-bw/2}" y="${q.y-22}" width="${bw}" height="44" fill="${i===0?'#ffffff':'#101010'}" stroke="${i===0?'#ffffff':'#9a9a9a'}"/><text x="${q.x}" y="${q.y+4}" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700" fill="${i===0?'#000000':'#e8e8e8'}">${esc(String(name).slice(0,Math.floor(bw/6.4)))}</text></g>`;});
     return svg+'</svg>';
   }
   function renderCooccurrence() {
@@ -533,9 +533,9 @@
     const min=Number($('#cooccurrence-min')?.value||2), top=Object.entries(freq).filter(([t,n])=>n>=min).sort((a,b)=>b[1]-a[1]).slice(0,35);const keep=new Set(top.map(x=>x[0]));const edges=Object.entries(pairs).map(([k,v])=>({terms:k.split('|||'),v})).filter(e=>e.v>=min&&e.terms.every(t=>keep.has(t))).sort((a,b)=>b.v-a.v).slice(0,75);
     if(!top.length){canvas.innerHTML='<div class="empty-state">Belum ada kata kunci berulang. Coba ubah minimum kemunculan menjadi 1 atau jalankan ulang sintesis.</div>';meta.textContent=`${docs.length} artikel diperiksa`;return;}
     const w=900,h=560,cx=w/2,cy=h/2,max=Math.max(...top.map(x=>x[1]));const pos={};top.forEach(([t,n],i)=>{const angle=(2*Math.PI*i/top.length)-Math.PI/2;const r=70+Math.min(170,top.length*5);pos[t]={x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r,n};});
-    let svg=`<svg class="cooccur-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Co-occurrence network"><rect width="100%" height="100%" fill="#0d0d0c"/>`;
-    edges.forEach(e=>{const a=pos[e.terms[0]],b=pos[e.terms[1]];if(a&&b)svg+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#8b8b82" stroke-opacity=".5" stroke-width="${Math.min(5,1+e.v)}"/>`;});
-    top.forEach(([t,n],i)=>{const q=pos[t],r=9+14*n/max;svg+=`<g><circle cx="${q.x}" cy="${q.y}" r="${r}" fill="${i%3===0?'#f3f1e7':i%3===1?'#9fd09f':'#dcb85c'}" fill-opacity=".95" stroke="#0d0d0c" stroke-width="2"/><text x="${q.x}" y="${q.y+r+13}" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="${Math.min(11,9+n/max*2)}" font-weight="500" fill="#d6d4cb">${esc(t.slice(0,24))}</text></g>`;});
+    let svg=`<svg class="cooccur-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Co-occurrence network"><rect width="100%" height="100%" fill="#000000"/>`;
+    edges.forEach(e=>{const a=pos[e.terms[0]],b=pos[e.terms[1]];if(a&&b)svg+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#9a9a9a" stroke-opacity=".5" stroke-width="${Math.min(5,1+e.v)}"/>`;});
+    top.forEach(([t,n],i)=>{const q=pos[t],r=9+14*n/max;svg+=`<g><circle cx="${q.x}" cy="${q.y}" r="${r}" fill="${i%3===0?'#ffffff':i%3===1?'#9fd09f':'#dcb85c'}" fill-opacity=".95" stroke="#000000" stroke-width="2"/><text x="${q.x}" y="${q.y+r+13}" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="${Math.min(11,9+n/max*2)}" font-weight="500" fill="#e8e8e8">${esc(t.slice(0,24))}</text></g>`;});
     canvas.innerHTML=svg+'</svg>';meta.textContent=`${docs.length} artikel · ${top.length} istilah · ${edges.length} hubungan co-occurrence`;
   }
 
@@ -832,8 +832,8 @@
   // ---------------------------------------------------------------- Laporan HTML (untuk dibaca manusia)
   // Satu berkas mandiri: tanpa permintaan jaringan (CSP menutupnya), ramah cetak, dan data JSON ikut ditanam sebagai cadangan.
   const SCOPE_LABEL = {notexcluded: 'Semua artikel kecuali yang di-EXCLUDE manual', all: 'Semua artikel hasil ekstraksi', included: 'Hanya artikel INCLUDE (screening dan full-text)'};
-  const REPORT_CSS = `:root{--bg:#fbfbf8;--fg:#1c1c1a;--dim:#6b6b66;--line:#d9d9d2;--accent:#1f5f8b;--ok:#2e7d32;--warn:#a15c00;--card:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecece6;--dim:#9a9a92;--line:#33332f;--accent:#7fb7e0;--ok:#7bc47f;--warn:#e0a84f;--card:#1b1b1a}}
+  const REPORT_CSS = `:root{--bg:#fbfbf8;--fg:#1c1c1a;--dim:#6b6b66;--line:#d9d9d2;--accent:#d4146d;--ok:#2e7d32;--warn:#a15c00;--card:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#101010;--fg:#ecece6;--dim:#9a9a92;--line:#33332f;--accent:#ff7ab8;--ok:#7bc47f;--warn:#e0a84f;--card:#1b1b1a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:1000px;margin:0 auto;padding:28px 20px 70px}h1{font-size:24px;margin:.2em 0}h2{font-size:17px;margin:34px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}h3{font-size:14px;margin:18px 0 6px}
 .eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}.meta{color:var(--dim);font-size:12.5px}
@@ -1216,20 +1216,23 @@ ${refnote}
       const data = s.taxonomy.polyhierarchy || {};
       const nodes = list(data.nodes);
       const nodeNames = Object.fromEntries(nodes.map(n => [n.id, n.name]));
-      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#8b8b82;font-size:11px;margin:0 0 15px">Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.</p>${nodes.length ? `${renderHierarchySvg(null,nodes,list(data.edges),true)}<div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Belum ada node poly-hierarchy pada hasil sintesis.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#9a9a9a;font-size:11px;margin:0 0 15px">Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.</p>${nodes.length ? `${renderHierarchySvg(null,nodes,list(data.edges),true)}<div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Belum ada node poly-hierarchy pada hasil sintesis.</div>'}`;
     } else {
       const m = s.taxonomy.matrix || {};
       const cols = list(m.columns);
       const rows = list(m.rows);
-      box.innerHTML = `<div class="synth-eyebrow">MATRICES TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Klasifikasi silang antar dimensi</h2><p style="font-size:11px;color:#8b8b82;margin:0 0 15px">Baris: ${esc(m.row_axis_name || 'Dimensi baris')} · Kolom: ${esc(m.column_axis_name || 'Dimensi kolom')}</p>${rows.length && cols.length ? `<div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>${esc(m.row_axis_name || 'Kategori')}</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name || 'Baris')}</td>${cols.map(col=>{const cell=list(row.cells).find(c=>c.column===col);return `<td>${esc(cell ? cell.summary || '—' : '—')}${cell && list(cell.article_ids).length ? `<span class="matrix-cell-evidence">${list(cell.article_ids).length} artikel</span><div class="source-chips">${citationChips(cell.article_ids)}</div>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">Belum ada matriks taxonomy pada hasil sintesis.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">MATRICES TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Klasifikasi silang antar dimensi</h2><p style="font-size:11px;color:#9a9a9a;margin:0 0 15px">Baris: ${esc(m.row_axis_name || 'Dimensi baris')} · Kolom: ${esc(m.column_axis_name || 'Dimensi kolom')}</p>${rows.length && cols.length ? `<div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>${esc(m.row_axis_name || 'Kategori')}</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name || 'Baris')}</td>${cols.map(col=>{const cell=list(row.cells).find(c=>c.column===col);return `<td>${esc(cell ? cell.summary || '—' : '—')}${cell && list(cell.article_ids).length ? `<span class="matrix-cell-evidence">${list(cell.article_ids).length} artikel</span><div class="source-chips">${citationChips(cell.article_ids)}</div>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">Belum ada matriks taxonomy pada hasil sintesis.</div>'}`;
     }
   }
 
   function typeColor(type) {
-    const colours = {concept:'#f3f1e7', factor:'#dcb85c', outcome:'#9fd09f', context:'#86b4d8', method:'#e8906e'};
+    const colours = {concept:'#ffffff', factor:'#dcb85c', outcome:'#9fd09f', context:'#86b4d8', method:'#e8906e'};
     return colours[type] || colours.concept;
   }
-  function downloadSvg(selector, filename) { const svg=$(selector); if(!svg){toast('Diagram belum tersedia.','error');return;} const blob=new Blob([svg.outerHTML],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url); }
+  // Mode formal: warna diagram non-taksonomi dipetakan ke abu-abu di atas putih (untuk unduhan SVG)
+  const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0'};
+  const formalizeSvg = s => document.body.classList.contains('formal') ? s.replace(/#[0-9a-fA-F]{6}\b/g, h => FORMAL_MAP[h.toLowerCase()] || h) : s;
+  function downloadSvg(selector, filename) { const svg=$(selector); if(!svg){toast('Diagram belum tersedia.','error');return;} const blob=new Blob([formalizeSvg(svg.outerHTML)],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url); }
   function renderSystemMap() {
     const s = state.synthesis;
     const canvas = $('#system-map-canvas');
@@ -1257,15 +1260,15 @@ ${refnote}
       if (Math.abs(tx-sx)>Math.abs(ty-sy)) { sx += tx>sx ? nodeW/2-3 : -nodeW/2+3; tx += tx>sx ? -nodeW/2+3 : nodeW/2-3; }
       else { sy += ty>sy ? nodeH/2-2 : -nodeH/2+2; ty += ty>sy ? -nodeH/2+2 : nodeH/2-2; }
       const midx=(sx+tx)/2, midy=(sy+ty)/2;
-      return `<g><path d="M ${sx} ${sy} L ${tx} ${ty}" stroke="#8b8b82" stroke-width="1.35" fill="none" marker-end="url(#arrowhead)"/><rect x="${midx-67}" y="${midy-11}" width="134" height="22" fill="#0d0d0c" stroke="#46463f"/><text x="${midx}" y="${midy+3}" font-family="IBM Plex Mono,monospace" font-size="9" fill="#8b8b82" text-anchor="middle">${esc((e.label||'hubungan').slice(0,24))}</text></g>`;
+      return `<g><path d="M ${sx} ${sy} L ${tx} ${ty}" stroke="#9a9a9a" stroke-width="1.35" fill="none" marker-end="url(#arrowhead)"/><rect x="${midx-67}" y="${midy-11}" width="134" height="22" fill="#000000" stroke="#3a3a3a"/><text x="${midx}" y="${midy+3}" font-family="Inter,Arial,sans-serif" font-size="9" fill="#9a9a9a" text-anchor="middle">${esc((e.label||'hubungan').slice(0,24))}</text></g>`;
     }).join('');
     const nodeSvg = nodes.map(n=>{
       const p=positions[n.id], color=typeColor(n.type);
       const label=String(n.label || n.id); const lines=label.length>25?[label.slice(0,24)+'…']: [label];
       const evidence=list(n.article_ids).length;
-      return `<g><rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="#141413" stroke="#46463f" stroke-width="1.2"/><rect x="${p.x}" y="${p.y}" width="5" height="${nodeH}" fill="${color}"/><text x="${p.x+15}" y="${p.y+25}" font-family="IBM Plex Mono,monospace" font-size="10" font-weight="700" fill="#f3f1e7">${esc(lines[0])}</text><text x="${p.x+15}" y="${p.y+43}" font-family="IBM Plex Mono,monospace" font-size="9" fill="#8b8b82">${esc(String(n.type||'concept').toUpperCase())} · ${evidence} artikel</text></g>`;
+      return `<g><rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="#101010" stroke="#3a3a3a" stroke-width="1.2"/><rect x="${p.x}" y="${p.y}" width="5" height="${nodeH}" fill="${color}"/><text x="${p.x+15}" y="${p.y+25}" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700" fill="#ffffff">${esc(lines[0])}</text><text x="${p.x+15}" y="${p.y+43}" font-family="Inter,Arial,sans-serif" font-size="9" fill="#9a9a9a">${esc(String(n.type||'concept').toUpperCase())} · ${evidence} artikel</text></g>`;
     }).join('');
-    canvas.innerHTML = `<svg id="system-map-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="System map hasil sintesis"><defs><marker id="arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L6,3.5 L0,7 Z" fill="#8b8b82"/></marker></defs>${edgeSvg}${nodeSvg}</svg>`;
+    canvas.innerHTML = `<svg id="system-map-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="System map hasil sintesis"><defs><marker id="arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L6,3.5 L0,7 Z" fill="#9a9a9a"/></marker></defs>${edgeSvg}${nodeSvg}</svg>`;
     $('#system-map-meta').textContent = `${nodes.length} node · ${edges.length} hubungan · ${s.included_article_count || currentCounts().included} artikel terpilih`;
     const typeNames = {concept:'Konsep',factor:'Faktor',outcome:'Outcome',context:'Konteks',method:'Metode'};
     const types = [...new Set(nodes.map(n=>n.type||'concept'))];
@@ -1584,28 +1587,54 @@ ${refnote}
   // ===== Diagram taksonomi desain riset (halaman "Diagram Taksonomi") =====
   // Memvisualkan pohon dari /api/design-taxonomy sebagai diagram SVG (pohon horizontal atau radial).
   // SVG memakai warna literal (bukan variabel CSS) agar hasil unduhan SVG/PNG berdiri sendiri.
-  const DG = {layout: 'tree', collapsed: new Set(), selected: null, zoom: 1, fit: true, root: null, key: '', W: 0, H: 0, req: 0};
+  const DG = {layout: 'tree', collapsed: new Set(), selected: null, zoom: 1, fit: true, all: false, resetScroll: false, root: null, key: '', W: 0, H: 0, req: 0};
   const DG_BRANCH = {
-    dark: {root: '#f3f1e7', metodologi: '#9fd09f', strategi: '#86b4d8', teknik: '#e8906e', fondasi: '#dcb85c'},
-    light: {root: '#111111', metodologi: '#2f7a2f', strategi: '#1f5f8f', teknik: '#b4491f', fondasi: '#8a6410'},
+    dark: {root: '#ffffff', metodologi: '#9fd09f', strategi: '#86b4d8', teknik: '#e8906e', fondasi: '#dcb85c'},
+    // Mode formal (pohon): semua hitam, tanpa pembeda warna.
+    light: {root: '#000000', metodologi: '#000000', strategi: '#000000', teknik: '#000000', fondasi: '#000000'},
   };
   const DG_PAL = {
-    dark: {bg: '#0d0d0c', text: '#d6d4cb', dim: '#8b8b82', nodeFill: '#141413', nodeStroke: '#46463f', rootText: '#0d0d0c', sel: '#f3f1e7'},
-    light: {bg: '#FFFFFF', text: '#111111', dim: '#555555', nodeFill: '#F5F5F2', nodeStroke: '#BBBBBB', rootText: '#FFFFFF', sel: '#000000'},
+    dark: {bg: '#000000', text: '#e8e8e8', dim: '#9a9a9a', nodeFill: '#101010', nodeStroke: '#3a3a3a', rootText: '#000000', sel: '#ffffff', arc: '#000000'},
+    light: {bg: '#ffffff', text: '#000000', dim: '#555555', nodeFill: '#ffffff', nodeStroke: '#000000', rootText: '#ffffff', sel: '#000000', arc: '#7a7a7a'},
+  };
+  // Sunburst formal: tiap cabang punya dasar abu-abu (gelap sampai terang); makin ke cincin luar makin mendekati putih.
+  const DG_GRAY = {metodologi: 30, strategi: 85, teknik: 140, fondasi: 190};
+  const dgTheme = () => document.body.classList.contains('formal') ? 'light' : 'dark';
+  const dgSwatch = id => {
+    if (dgTheme() === 'light' && DG.layout === 'sunburst') { const v = DG_GRAY[id] ?? 60; return `rgb(${v},${v},${v})`; }
+    const bc = DG_BRANCH[dgTheme()]; return bc[id] || bc.root;
   };
   const DG_KIND = {root: 'Topik (akar)', branch: 'Cabang', group: 'Kelompok', family: 'Keluarga teknik', value: 'Kategori', technique: 'Teknik', more: 'Ringkasan'};
-  const DG_FONT = "'IBM Plex Mono', Consolas, Menlo, monospace"; // monospace: lebar karakter ~0,6 em dipakai di dgW dan sunburst
+  const DG_FONT = "'Inter', 'Segoe UI', Arial, sans-serif"; // lebar karakter rata-rata ~0,55 em: perkiraan 7,3 px/huruf di dgW dan sunburst masih aman
   const dgVK = n => DG.collapsed.has(n.id) ? [] : n.children;
   const dgTrunc = (s, m = 40) => { s = String(s || ''); return s.length > m ? s.slice(0, m - 1) + '…' : s; };
-  const dgW = n => {
-    const t = dgTrunc(n.name).length * (n.kind === 'root' ? 8.2 : n.kind === 'branch' ? 7.6 : 7.3);
-    return Math.round(t + (n.kind === 'root' ? 32 : 30) + (n.count > 0 && n.kind !== 'root' ? 30 : 0));
-  };
+  // Teks panjang dibungkus (wrap) menjadi beberapa baris; nama lengkap tidak lagi dipotong.
+  function dgWrap(s, max) {
+    const out = []; let cur = '';
+    String(s || '').trim().split(/\s+/).filter(Boolean).forEach(word => {
+      while (word.length > max) {                        // kata yang lebih panjang dari satu baris: pecah dengan tanda hubung
+        if (cur) { out.push(cur); cur = ''; }
+        out.push(word.slice(0, max - 1) + '-'); word = word.slice(max - 1);
+      }
+      if (!cur) cur = word;
+      else if ((cur + ' ' + word).length <= max) cur += ' ' + word;
+      else { out.push(cur); cur = word; }
+    });
+    if (cur) out.push(cur);
+    return out.length ? out : [''];
+  }
+  function dgMeasure(n) {
+    const cap = n.kind === 'root' ? 24 : n.kind === 'branch' ? 26 : 32;
+    n._lines = dgWrap(n.name, cap);
+    n._h = Math.max(24, n._lines.length * 14.5 + 9);
+    const cw = n.kind === 'root' ? 8.2 : n.kind === 'branch' ? 7.6 : 7.3, widest = Math.max(...n._lines.map(l => l.length));
+    n._w = Math.round(widest * cw + (n.kind === 'root' ? 32 : 30) + (n.count > 0 && n.kind !== 'root' ? 30 : 0));
+  }
 
   function dgPrep(node, depth, branch, path) {
     const id = path ? `${path}/${node.id}` : String(node.id);
     const br = depth === 1 ? node.id : branch;
-    const CAP = 15;
+    const CAP = DG.all ? Infinity : 15;   // DG.all (Buka semua) = tampilkan semua teknik; ringkasan "+N teknik lain" hanya muncul pada mode Pas/awal
     // Simpul tanpa artikel (dan tanpa turunan yang punya artikel) tidak digambar. Cabang kosong tetap terlihat di tab Taksonomi Desain Riset.
     const alive = k => (k.count || 0) > 0 || list(k.children).some(alive);
     const kids = list(node.children).filter(alive);
@@ -1617,12 +1646,13 @@ ${refnote}
     }
     return {id, name: node.name, kind: node.kind, count: node.count || 0, definition: node.definition || '', note: node.note || '', article_ids: list(node.article_ids), inferred_count: node.inferred_count || 0, children: out, depth, branch: br};
   }
+  function dgReprep() { if (DG.res) DG.root = dgPrep(DG.res.tree, 0, '', ''); }
   function dgWalk(n, fn) { fn(n); n.children.forEach(k => dgWalk(k, fn)); }
   function dgVWalk(n, fn) { fn(n); dgVK(n).forEach(k => dgVWalk(k, fn)); }
   function dgFind(id) { let hit = null; if (DG.root) dgWalk(DG.root, n => { if (n.id === id) hit = n; }); return hit; }
 
   function dgNodeSvg(n, pal, bc, x, y, rot, x0, dir) {
-    const col = bc[n.branch] || bc.root, w = n._w, sel = DG.selected === n.id;
+    const col = bc[n.branch] || bc.root, w = n._w, h = n._h || 24, L = n._lines || [n.name], sel = DG.selected === n.id;
     const isRoot = n.kind === 'root', isBranch = n.kind === 'branch', isMore = n.kind === 'more';
     const fill = isRoot ? col : pal.nodeFill;
     const stroke = sel ? pal.sel : isBranch ? col : isRoot ? col : pal.nodeStroke;
@@ -1631,11 +1661,13 @@ ${refnote}
     const weight = isRoot ? 800 : isBranch ? 700 : 500;
     const tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
     let g = `<g class="dg-node" data-id="${esc(n.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot.toFixed(2)})" style="cursor:pointer"><title>${esc(tip)}</title>`;
-    g += `<rect x="${x0}" y="-12" width="${w}" height="24" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${isMore ? ' stroke-dasharray="4 3"' : ''}/>`;
+    g += `<rect x="${x0}" y="${(-h / 2).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${isMore ? ' stroke-dasharray="4 3"' : ''}/>`;
     if (!isRoot && !isBranch && !isMore) g += `<rect x="${x0 + 7}" y="-3" width="6" height="6" fill="${col}"/>`;
-    g += `<text x="${x0 + (isRoot || isBranch || isMore ? 12 : 19)}" y="4.2" font-family="${DG_FONT}" font-size="${isRoot ? 13 : 12}" font-weight="${weight}"${isMore ? ' font-style="italic"' : ''} fill="${tcol}">${esc(dgTrunc(n.name))}</text>`;
+    const tx0 = x0 + (isRoot || isBranch || isMore ? 12 : 19);
+    const tsp = L.map((t, i) => `<tspan x="${tx0}" y="${((i - (L.length - 1) / 2) * 14.5 + 4.2).toFixed(1)}">${esc(t)}</tspan>`).join('');
+    g += `<text font-family="${DG_FONT}" font-size="${isRoot ? 13 : 12}" font-weight="${weight}"${isMore ? ' font-style="italic"' : ''} fill="${tcol}">${tsp}</text>`;
     if (n.count > 0 && !isRoot) {
-      g += `<rect x="${x0 + w - 28}" y="-8.5" width="23" height="17" rx="0" fill="${col}" fill-opacity="0.18"/><text x="${x0 + w - 16.5}" y="4" text-anchor="middle" font-family="${DG_FONT}" font-size="11" font-weight="700" fill="${col}">${n.count}</text>`;
+      g += `<rect x="${x0 + w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${x0 + w - 16.5}" y="4" text-anchor="middle" font-family="${DG_FONT}" font-size="11" font-weight="700" fill="${col}">${n.count}</text>`;
     }
     if (n.children.length && !isRoot) {
       const cx = dir > 0 ? x0 + w + 9 : x0 - 9;
@@ -1646,41 +1678,58 @@ ${refnote}
 
   function dgSizes(root) {
     const cols = [];
-    (function f(n, d) { n._w = dgW(n); cols[d] = Math.max(cols[d] || 0, n._w + (n.children.length && n.kind !== 'root' ? 18 : 0)); dgVK(n).forEach(k => f(k, d + 1)); })(root, 0);
+    (function f(n, d) { dgMeasure(n); cols[d] = Math.max(cols[d] || 0, n._w + (n.children.length && n.kind !== 'root' ? 18 : 0)); dgVK(n).forEach(k => f(k, d + 1)); })(root, 0);
     return cols;
   }
 
   function dgBuild(theme) {
-    const root = DG.root, pal = DG_PAL[theme], bc = DG_BRANCH[theme], cols = dgSizes(root);
+    const root = DG.root, pal = DG_PAL[theme], bc = DG_BRANCH[theme], cols = dgSizes(root), formal = theme === 'light';
     const links = [], nodes = [];
     let W, H, tx, ty;
     if (DG.layout === 'tree') {
-      const ROW = 31, GAP = 62, PAD = 28;
+      const GAP = 62, PAD = 28, VPAD = 8;
       const xs = []; cols.forEach((w, i) => { xs[i] = i ? xs[i - 1] + cols[i - 1] + GAP : 0; });
-      let cursor = 0;
-      (function pos(n, d) {
+      // Tinggi tiap subpohon = yang terbesar antara tinggi simpulnya sendiri dan jumlah tinggi anak-anaknya (simpul yang di-wrap lebih tinggi)
+      const need = n => { const k = dgVK(n); n._need = Math.max(n._h + VPAD, k.reduce((t, c) => t + need(c), 0)); return n._need; };
+      need(root);
+      (function pos(n, d, top) {
         const kids = dgVK(n); n._x = xs[d];
-        if (!kids.length) { n._y = cursor + ROW / 2; cursor += ROW; }
-        else { kids.forEach(k => pos(k, d + 1)); n._y = (kids[0]._y + kids[kids.length - 1]._y) / 2; }
-      })(root, 0);
+        if (!kids.length) { n._y = top + n._need / 2; return; }
+        const sum = kids.reduce((t, c) => t + c._need, 0); let cur = top + (n._need - sum) / 2;
+        kids.forEach(k => { pos(k, d + 1, cur); cur += k._need; });
+        n._y = (kids[0]._y + kids[kids.length - 1]._y) / 2;
+      })(root, 0, 0);
       dgVWalk(root, n => {
         const col = bc[n.branch] || bc.root, kids = dgVK(n);
         const startX = n._x + n._w + (n.children.length && n.kind !== 'root' ? 18 : 0);
         kids.forEach(k => {
           const xm = (startX + k._x) / 2;
-          links.push(`<path d="M${startX} ${n._y.toFixed(1)} C${xm} ${n._y.toFixed(1)} ${xm} ${k._y.toFixed(1)} ${k._x} ${k._y.toFixed(1)}" fill="none" stroke="${col}" stroke-opacity="0.5" stroke-width="1.4"/>`);
+          links.push(`<path d="M${startX} ${n._y.toFixed(1)} C${xm} ${n._y.toFixed(1)} ${xm} ${k._y.toFixed(1)} ${k._x} ${k._y.toFixed(1)}" fill="none" stroke="${col}" stroke-opacity="${formal ? 1 : 0.5}" stroke-width="${formal ? 1.2 : 1.4}"/>`);
         });
         nodes.push(dgNodeSvg(n, pal, bc, n._x, n._y, 0, 0, 1));
       });
-      W = xs[xs.length - 1] + cols[cols.length - 1] + PAD * 2 + 12; H = Math.max(cursor, ROW) + PAD * 2; tx = PAD; ty = PAD;
+      W = xs[xs.length - 1] + cols[cols.length - 1] + PAD * 2 + 12; H = root._need + PAD * 2; tx = PAD; ty = PAD;
     } else {
-      // Sunburst: cincin = kedalaman, lebar busur sebanding dengan jumlah daun yang tampil
+      // Sunburst: cincin = kedalaman, lebar busur sebanding dengan jumlah daun yang tampil. Label panjang dibungkus per baris.
+      const LH = 13, CW = 6.9, labelOf = n => n.name + (n.count ? ` (${n.count})` : '');
       const labLen = [];
-      dgVWalk(root, n => { labLen[n.depth] = Math.max(labLen[n.depth] || 0, dgTrunc(n.name, 26).length); });
-      const maxD = labLen.length - 1, R0 = 82, inner = [0, R0], outer = [R0];
-      for (let d = 1; d <= maxD; d++) { const T = Math.min(190, Math.max(100, labLen[d] * 7.2 + 24)); outer[d] = inner[d] + T; inner[d + 1] = outer[d]; }
+      dgVWalk(root, n => { if (n.kind !== 'root') labLen[n.depth] = Math.max(labLen[n.depth] || 0, Math.min(labelOf(n).length, 30)); });
+      const maxD = labLen.length - 1, thick = [];
+      for (let d = 1; d <= maxD; d++) thick[d] = Math.min(210, Math.max(100, (labLen[d] || 0) * CW + 24));
       const wt = n => { const k = dgVK(n); n._wt = k.length ? k.reduce((t, c) => t + wt(c), 0) : 1; return n._wt; };
       wt(root);
+      // Radius dalam diperbesar secukupnya agar label yang berbaris-baris muat di sepanjang busurnya
+      const offs = []; let off = 0; for (let d = 1; d <= maxD; d++) { offs[d] = off; off += thick[d]; }
+      let R0 = 82;
+      dgVWalk(root, n => {
+        if (n.kind === 'root') return;
+        n._sl = dgWrap(labelOf(n), Math.max(6, Math.floor((thick[n.depth] - 12) / CW)));
+        const need = (n._sl.length * LH + 8) / (2 * Math.PI * n._wt / root._wt) - offs[n.depth] - thick[n.depth] / 2;
+        if (need > R0) R0 = need;
+      });
+      R0 = Math.ceil(Math.min(R0, 900));
+      const inner = [0, R0], outer = [R0];
+      for (let d = 1; d <= maxD; d++) { outer[d] = inner[d] + thick[d]; inner[d + 1] = outer[d]; }
       (function pos(n, a0, a1) {
         n._a0 = a0; n._a1 = a1; let cur = a0;
         dgVK(n).forEach(k => { const span = (a1 - a0) * k._wt / n._wt; pos(k, cur, cur + span); cur += span; });
@@ -1694,21 +1743,27 @@ ${refnote}
       dgVWalk(root, n => {
         const col = bc[n.branch] || bc.root, tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
         if (n.kind === 'root') {
-          const words = String(n.name).split(/\s+/), lines = []; let cur = '';
-          words.forEach(w => { if ((cur + ' ' + w).trim().length > 13 && cur) { lines.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); });
-          if (cur) lines.push(cur);
-          const ls = lines.slice(0, 3).map((t, i, arr) => `<tspan x="0" y="${((i - (arr.length - 1) / 2) * 15 + 4).toFixed(1)}">${esc(dgTrunc(t, 16))}</tspan>`).join('');
-          nodes.push(`<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><circle r="${R0 - 2}" fill="${col}" stroke="${DG.selected === n.id ? pal.sel : pal.bg}" stroke-width="${DG.selected === n.id ? 3 : 2}"/><text text-anchor="middle" font-family="${DG_FONT}" font-size="12" font-weight="800" fill="${pal.rootText}">${ls}</text></g>`);
+          const rr = R0 - 2, fs = Math.max(12, Math.min(22, rr / 6.5)), lh = fs * 1.22;
+          const lines = dgWrap(n.name, Math.max(11, Math.floor(rr * 1.5 / (fs * 0.62))));
+          const ls = lines.map((t, i) => `<tspan x="0" y="${((i - (lines.length - 1) / 2) * lh + fs * 0.33).toFixed(1)}">${esc(t)}</tspan>`).join('');
+          nodes.push(`<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><circle r="${rr}" fill="${col}" stroke="${DG.selected === n.id ? pal.sel : pal.bg}" stroke-width="${DG.selected === n.id ? 3 : 2}"/><text text-anchor="middle" font-family="${DG_FONT}" font-size="${fs.toFixed(1)}" font-weight="800" fill="${pal.rootText}">${ls}</text></g>`);
           return;
         }
         const r0 = inner[n.depth] + 1, r1 = outer[n.depth] - 1, sel = DG.selected === n.id, solid = n.depth === 1;
-        const op = solid ? 0.95 : n.depth === 2 ? 0.5 : 0.3;
+        let fill = col, op = solid ? 0.95 : n.depth === 2 ? 0.5 : 0.3, tcol = solid ? pal.rootText : pal.text;
+        if (formal) {   // putih → hitam: dasar abu-abu per cabang, makin terang ke cincin luar
+          const base = DG_GRAY[n.branch] ?? 60, t = n.depth <= 1 ? 0 : n.depth === 2 ? 0.45 : 0.75, v = Math.round(base + (255 - base) * t);
+          fill = `rgb(${v},${v},${v})`; op = 1; tcol = v > 140 ? '#111111' : '#ffffff';
+        }
         const am = (n._a0 + n._a1) / 2, rm = (r0 + r1) / 2, arcLen = (n._a1 - n._a0) * rm;
-        let g = `<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><path d="${arc(r0, r1, n._a0, n._a1)}" fill="${col}" fill-opacity="${op}" stroke="${sel ? pal.sel : pal.bg}" stroke-width="${sel ? 2.6 : 1.5}"/>`;
-        if (arcLen >= 15 && (n._a1 - n._a0) > 0.012) {
+        let g = `<g class="dg-node" data-id="${esc(n.id)}" style="cursor:pointer"><title>${esc(tip)}</title><path d="${arc(r0, r1, n._a0, n._a1)}" fill="${fill}" fill-opacity="${op}" stroke="${sel ? pal.sel : pal.arc}" stroke-width="${sel ? 2.6 : formal ? 0.8 : 1.5}"/>`;
+        const maxLines = Math.floor((arcLen - 4) / LH);
+        if (maxLines >= 1 && (n._a1 - n._a0) > 0.004) {
+          let L = n._sl;
+          if (L.length > maxLines) { L = L.slice(0, maxLines); const cap = Math.max(6, Math.floor((thick[n.depth] - 12) / CW)), last = L[maxLines - 1]; L[maxLines - 1] = (last.length >= cap ? last.slice(0, cap - 1) : last) + '…'; }  // hanya bila busur terlalu sempit; nama lengkap ada di tooltip dan panel detail
           const flip = Math.cos(am) < 0, [tx0, ty0] = P(rm, am), deg = am * 180 / Math.PI + (flip ? 180 : 0);
-          const cap = Math.max(4, Math.floor((r1 - r0 - 14) / 7.2)), label = dgTrunc(n.name + (n.count ? ` (${n.count})` : ''), cap);
-          g += `<text transform="translate(${tx0.toFixed(1)},${ty0.toFixed(1)}) rotate(${deg.toFixed(2)})" text-anchor="middle" y="4" font-family="${DG_FONT}" font-size="12" font-weight="${solid ? 700 : 500}" fill="${solid ? pal.rootText : pal.text}">${esc(label)}</text>`;
+          const ls = L.map((t, i) => `<tspan x="0" y="${((i - (L.length - 1) / 2) * LH + 4).toFixed(1)}">${esc(t)}</tspan>`).join('');
+          g += `<text transform="translate(${tx0.toFixed(1)},${ty0.toFixed(1)}) rotate(${deg.toFixed(2)})" text-anchor="middle" font-family="${DG_FONT}" font-size="12" font-weight="${solid ? 700 : 500}" fill="${tcol}">${ls}</text>`;
         }
         nodes.push(g + '</g>');
       });
@@ -1721,13 +1776,17 @@ ${refnote}
 
   function dgPaint() {
     const box = $('#dg-canvas'); if (!box || !DG.root) return;
-    const sx = box.scrollLeft, sy = box.scrollTop;
-    box.innerHTML = dgBuild('dark');
-    if (DG.fit) DG.zoom = Math.max(0.3, Math.min(1, ((box.clientWidth || DG.W) - 24) / DG.W));
+    const reset = DG.resetScroll; DG.resetScroll = false;
+    const sx = reset ? 0 : box.scrollLeft, sy = reset ? 0 : box.scrollTop;
+    box.innerHTML = dgBuild(dgTheme());
+    const aw = (box.clientWidth || DG.W) - 24;
+    if (DG.fit === 'all') DG.zoom = Math.max(0.08, Math.min(1.5, aw / DG.W, (Math.max(280, window.innerHeight * 0.74) - 24) / DG.H));   // tombol Pas: seluruh diagram muat di layar
+    else if (DG.fit) DG.zoom = Math.max(0.15, Math.min(1, aw / DG.W));
     const el = box.querySelector('svg');
     el.setAttribute('width', Math.round(DG.W * DG.zoom)); el.setAttribute('height', Math.round(DG.H * DG.zoom));
     box.scrollLeft = sx; box.scrollTop = sy;
     $$('[data-dg-layout]').forEach(b => b.classList.toggle('active', b.dataset.dgLayout === DG.layout));
+    if (DG.res) dgLegend(DG.res);
   }
 
   function dgDetail(id) {
@@ -1741,10 +1800,9 @@ ${refnote}
   }
 
   function dgLegend(res) {
-    const bc = DG_BRANCH.dark;
-    const items = list(res.tree.children).map(b => `<div class="dg-lg"><i style="background:${bc[b.id] || bc.root}"></i><span>${esc(b.name)}</span></div>`).join('');
+    const items = list(res.tree.children).map(b => `<div class="dg-lg"><i style="background:${dgSwatch(b.id)}"></i><span>${esc(b.name)}</span></div>`).join('');
     let total = 0, shown = 0; dgWalk(DG.root, () => { total++; }); const walk = n => { shown++; dgVK(n).forEach(walk); }; walk(DG.root);
-    $('#dg-legend').innerHTML = `<div class="dg-d-kind">LEGENDA</div><div class="dg-lg-row">${items}</div>`
+    $('#dg-legend').innerHTML = `<div class="dg-d-kind">${dgTheme() === 'light' && DG.layout === 'tree' ? 'KETERANGAN' : 'LEGENDA'}</div>${dgTheme() === 'light' && DG.layout === 'tree' ? '' : `<div class="dg-lg-row">${items}</div>`}`
       + `<ul class="dg-notes"><li>Angka pada simpul = jumlah artikel.</li><li><b>+</b> / <b>−</b> atau klik dua kali = buka / tutup cabang.</li><li>Satu artikel boleh masuk ke beberapa simpul.</li><li>Menampilkan ${shown} dari ${total} simpul.</li></ul>`;
   }
 
@@ -1778,8 +1836,8 @@ ${refnote}
   }
   function dgDownload(kind) {
     if (!DG.root) { toast('Belum ada diagram untuk diunduh.', 'error'); return; }
-    const theme = $('#dg-light').checked ? 'light' : 'dark', svg = dgBuild(theme);
-    dgPaint();   // dgBuild memperbarui ukuran; gambar layar tetap tema gelap
+    const svg = dgBuild(dgTheme());   // unduhan mengikuti Mode formal
+    dgPaint();   // dgBuild memperbarui ukuran; gambar layar dibangun ulang
     const slug = String((state.designUi || {}).topic || 'topik').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'topik';
     const save = (blob, ext) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `diagram-taksonomi-${slug}.${ext}`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
     if (kind === 'svg') { save(new Blob([svg], {type: 'image/svg+xml;charset=utf-8'}), 'svg'); return; }
@@ -1793,6 +1851,17 @@ ${refnote}
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   }
   function attachDiagramEvents() {
+    const fm = $('#formal-toggle');
+    if (fm) {
+      const apply = on => {
+        document.body.classList.toggle('formal', on); fm.setAttribute('aria-pressed', on ? 'true' : 'false');
+        try { localStorage.setItem('slr-formal-mode', on ? '1' : '0'); } catch (_) { /* penyimpanan diblokir: abaikan */ }
+        if (DG.root) dgPaint();
+      };
+      let saved = false; try { saved = localStorage.getItem('slr-formal-mode') === '1'; } catch (_) { /* abaikan */ }
+      apply(saved);
+      fm.addEventListener('click', () => apply(!document.body.classList.contains('formal')));
+    }
     const cv = $('#dg-canvas'); if (!cv) return;
     cv.addEventListener('click', e => {
       const tg = e.target.closest('.dg-toggle'); if (tg) { dgToggle(tg.dataset.id); return; }
@@ -1801,11 +1870,11 @@ ${refnote}
     });
     cv.addEventListener('dblclick', e => { const nd = e.target.closest('.dg-node'); if (nd) dgToggle(nd.dataset.id); });
     $$('[data-dg-layout]').forEach(b => b.addEventListener('click', () => { DG.layout = b.dataset.dgLayout; DG.fit = true; dgPaint(); }));
-    $('#dg-expand').addEventListener('click', () => { if (!DG.root) return; DG.collapsed.clear(); dgLegend(DG.res); DG.fit = true; dgPaint(); });
-    $('#dg-collapse').addEventListener('click', () => { if (!DG.root) return; dgWalk(DG.root, n => { if (n.depth >= 1 && n.children.length) DG.collapsed.add(n.id); }); dgLegend(DG.res); DG.fit = true; dgPaint(); });
+    $('#dg-expand').addEventListener('click', () => { if (!DG.root) return; DG.all = true; dgReprep(); DG.collapsed.clear(); DG.fit = true; dgPaint(); });
+    $('#dg-collapse').addEventListener('click', () => { if (!DG.root) return; DG.all = false; dgReprep(); dgWalk(DG.root, n => { if (n.depth >= 1 && n.children.length) DG.collapsed.add(n.id); }); DG.fit = true; dgPaint(); });
     $('#dg-zoom-in').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.min(2.5, DG.zoom * 1.2); dgPaint(); });
     $('#dg-zoom-out').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.max(0.2, DG.zoom / 1.2); dgPaint(); });
-    $('#dg-fit').addEventListener('click', () => { DG.fit = true; dgPaint(); });
+    $('#dg-fit').addEventListener('click', () => { if (!DG.root) return; DG.all = false; dgReprep(); DG.fit = 'all'; DG.resetScroll = true; dgPaint(); });
     $('#dg-svg').addEventListener('click', () => dgDownload('svg'));
     $('#dg-png').addEventListener('click', () => dgDownload('png'));
     window.addEventListener('resize', () => { if (DG.root && DG.fit && $('#design-diagram').classList.contains('active-section')) dgPaint(); });
@@ -1852,7 +1921,7 @@ ${refnote}
     $('#system-map-download').addEventListener('click',()=>{
       const svg=$('#system-map-svg');if(!svg){toast('Belum ada system map untuk diunduh.','error');return;}
       const clone=svg.cloneNode(true);clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-      const blob=new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='system-map.svg';a.click();URL.revokeObjectURL(url);toast('System map diekspor sebagai SVG.','success');
+      const blob=new Blob([formalizeSvg(new XMLSerializer().serializeToString(clone))],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='system-map.svg';a.click();URL.revokeObjectURL(url);toast('System map diekspor sebagai SVG.','success');
     });
     // Persist form edits even if the user navigates away before pressing save.
     ['research-question','source-name','search-date','search-query','inclusion','exclusion'].forEach(id=>$('#'+id).addEventListener('change',()=>saveMetaFromForm(false)));
