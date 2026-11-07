@@ -15,17 +15,28 @@ SLR Protocol adalah web app satu-halaman untuk systematic literature review:
    research gap, taxonomy, system map).
 5. Frontend merender PRISMA, sintesis, taxonomy, co-occurrence, dan system map.
 
-Status: **prototype** untuk riset pribadi/kelompok kecil. Tidak ada akun, tidak ada database, tidak ada test suite.
+Status: **prototype** untuk riset pribadi dan kelompok. Proyek tidak disimpan di server (tidak ada database proyek). Ada dua mode:
+
+- **Mode mandiri:** `.env` memilih provider AI (Ollama atau DeepSeek dengan key sendiri). Tanpa akun.
+- **Mode terkelola (cara distribusi ke pengguna):** aplikasi berjalan di laptop pengguna, pengguna mendaftar sekali lewat `/signup`,
+  AI lewat proxy Supabase Edge Function yang memegang key DeepSeek admin, dan pemakaian token dicatat per akun di Supabase.
+  Rincian di bagian 9.1.
+
+Ada tes otomatis (bagian 10), tetapi belum ada CI.
 
 ### Prinsip desain (jangan dilanggar tanpa alasan kuat)
 
-- **Satu berkas backend (`app.py`) dan satu berkas frontend (`static/app.js`)**, tanpa framework dan tanpa build
-  step. Mudah dibaca dan diubah. Jangan memecah atau menambah toolchain kecuali diminta.
+- **Satu berkas backend utama (`app.py`) dan satu berkas frontend (`static/app.js`)**, tanpa framework dan tanpa build
+  step. Mudah dibaca dan diubah. Modul pendamping kecil yang sudah ada: `arah_riset.py` dan `user_auth.py`. Jangan memecah
+  lebih jauh atau menambah toolchain kecuali diminta.
 - **State milik browser.** Server hampir stateless: hanya menyimpan progres pekerjaan di memori (sementara).
   Sumber kebenaran proyek adalah `localStorage` + file Ekspor JSON.
 - **AI hanya membantu, manusia memutuskan.** Rekomendasi screening AI tidak pernah otomatis menjadi keputusan
   (`screening_decision` dan `eligibility_decision` selalu mulai `pending`).
-- **Provider AI dapat dipertukarkan lewat `.env`** (`ollama` atau `deepseek`) tanpa mengubah kode.
+- **Provider AI dapat dipertukarkan lewat `.env`** (`ollama` atau `deepseek`) tanpa mengubah kode. Di mode terkelola provider
+  dipaksa `deepseek` dan diarahkan ke proxy.
+- **Rahasia tidak pernah ada di repo atau di laptop pengguna.** Key DeepSeek admin hanya ada sebagai secret Supabase.
+  `.env.example` publik dan menjadi bawaan semua pengguna di mode terkelola, jadi jangan isi rahasia di sana.
 - Teks UI, pesan error, dan log berbahasa **Indonesia**. Nama variabel/fungsi berbahasa Inggris.
 
 ## 2. Struktur repo
@@ -39,14 +50,20 @@ templates/landing.html  Landing page (halaman depan di `/`). Berdiri sendiri; CS
 static/landing.css      Gaya landing saja. Tema terminal yang SAMA dengan workspace, tetapi `:root` disalin (bukan di-import): ubah warna/font di `style.css` = ubah juga di sini.
 arah_riset.py          Langkah 0 (khusus TMI ITB): mesin pertanyaan dan generator topik/RQ/query/kriteria. Murni komputasi, tanpa AI.
 arah_riset_data/        thesis_facets.json (facet tesis TMI) + vocab_en.json (istilah query bahasa Inggris). BUKAN di data/ karena data/ di-gitignore.
-requirements.txt        Flask, PyMuPDF, python-dotenv.
-start_windows.bat       Peluncur Windows (venv + pip install + python app.py).
-.env.example            Seluruh variabel konfigurasi beserta penjelasan.
-.gitignore              Mengabaikan .env, .venv, data/, dan berkas ekspor proyek.
+requirements.txt        Flask, PyMuPDF, python-dotenv. (Sengaja tanpa SDK Supabase: user_auth.py memakai urllib.)
+user_auth.py            Mode terkelola: gerbang /signup, daftar ke Supabase (RPC), tulis USER_API_KEY ke .env, arahkan AI ke proxy. Bagian 9.1.
+templates/signup.html   Halaman pendaftaran (berdiri sendiri, CSS inline, tema sama dengan landing).
+supabase/schema.sql     Tabel users/token_logs, RLS, fungsi register_user dan check_user, view usage_per_user. Dijalankan manual di SQL Editor.
+supabase/functions/llm-proxy/index.ts   Edge Function (Deno): cek akun/kuota, teruskan ke DeepSeek, catat token. Di-deploy manual, TIDAK ikut git pull.
+slr-protocol.bat        Peluncur Windows: git pull, .env minimal, venv, pip install, buka browser, python app.py. Harus CRLF (lihat .gitattributes).
+.gitattributes          `*.bat text eol=crlf` supaya .bat tetap CRLF setelah clone.
+.env.example            Konfigurasi bersama dan penjelasannya. Di mode terkelola SEMUA nilai terisi menjadi bawaan untuk pengguna.
+.gitignore              Mengabaikan .env, .env.tmp, .venv, venv, data/, dan berkas ekspor proyek.
+tests/                  test_routes, test_arah_riset, test_research_design, test_user_auth (python); ui_smoke, ui_report_check (node, opsional).
 ```
 
-Aset gambar yang dirujuk antarmuka tetapi **tidak ada di repo** (letakkan di `static/`): `slr.png` (logo + favicon),
-`latte0nim.jpg` (avatar credit), `qris.png` (QRIS di popup token; kotaknya menyembunyikan diri bila gambar tidak ada).
+Aset gambar di `static/`: `slr.png` (logo + favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit), `qris.png`
+(QRIS di popup token; kotaknya menyembunyikan diri bila gambar tidak ada), `slr.ico` (ikon shortcut Windows, dibuat dari `slr.png`).
 
 Folder `data/` hanya dibuat saat `KEEP_SERVER_PDFS` / `KEEP_SERVER_JSON` dinyalakan (`data/pdfs`, `data/json`),
 dan **tidak pernah dibaca kembali** oleh aplikasi. Keduanya mati secara bawaan.
@@ -59,22 +76,29 @@ cp .env.example .env     # isi LLM_PROVIDER dan kredensial
 python app.py            # http://127.0.0.1:5000 (alamat dan port dari HOST/PORT, lihat bagian 3 dan 11)
 ```
 
-Server bawaan Flask dipakai untuk penggunaan lokal. Cara deployment belum ditentukan; batasan arsitektur yang relevan
-bila aplikasi dipindah ke server lain dicatat di bagian 9.
+Itu cara mode mandiri. Pengguna di mode terkelola cukup `git clone` lalu klik dua kali `slr-protocol.bat` (bagian 9.1).
+Server bawaan Flask dipakai untuk penggunaan lokal. Distribusi ke pengguna dijelaskan di bagian 9.1; batasan bila aplikasi
+di-host di server dicatat di bagian 9.2.
 
 `.env` dimuat dari folder `app.py` dengan `override=False` (variabel environment sistem menang atas `.env`).
 **Nilai yang ada di `.env`/environment selalu mengalahkan nilai bawaan kode.** Contoh jebakan: `.env` lama yang berisi
 `MAX_TEXT_CHARS=18000` membuat bawaan DeepSeek (80000) tidak berlaku.
 
+Di mode terkelola ada satu lapis tambahan, `user_auth.prepare_env()`, yang dipanggil tepat setelah `load_dotenv`. Urutan
+prioritas: environment sistem > `.env` > `.env.example` (nilai yang terisi) > bawaan kode. Karena itu `.env` pengguna cukup berisi
+`USER_API_KEY`, dan perubahan di `.env.example` sampai ke semua pengguna lewat `git pull` tanpa menyentuh `.env` mereka.
+Pada mode mandiri atau `USER_AUTH=off`, `.env.example` diabaikan sepenuhnya (hanya `SUPABASE_URL`/`SUPABASE_ANON_KEY` yang dibaca
+untuk menentukan apakah mode terkelola aktif).
+
 ### Variabel konfigurasi
 
 | Variabel | Bawaan | Fungsi |
 |---|---|---|
-| `LLM_PROVIDER` | `ollama` | `ollama` atau `deepseek`. Nilai lain menghentikan start (`SystemExit`). |
+| `LLM_PROVIDER` | `ollama` | `ollama` atau `deepseek`. Nilai lain menghentikan start (`SystemExit`). Mode terkelola memaksa `deepseek`. |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434/api/chat` / `qwen3-vl:8b-instruct` | Ollama lokal. |
 | `OLLAMA_NUM_CTX` / `OLLAMA_MAX_OUTPUT_TOKENS` | `12288` / `3500` | Konteks dan plafon output Ollama. |
-| `DEEPSEEK_API_KEY` | kosong | Wajib bila provider deepseek. Tanpa ini `AI_CONFIGURED=False` dan route AI menjawab 503. |
-| `DEEPSEEK_MODEL` / `DEEPSEEK_URL` | `deepseek-flash` / `https://api.deepseek.com/chat/completions` | Model dan endpoint. |
+| `DEEPSEEK_API_KEY` | kosong | Wajib bila provider deepseek (mode mandiri). Tanpa ini `AI_CONFIGURED=False` dan route AI menjawab 503. Mode terkelola: diisi otomatis dari `USER_API_KEY`. |
+| `DEEPSEEK_MODEL` / `DEEPSEEK_URL` | `deepseek-flash` / `https://api.deepseek.com/chat/completions` | Model dan endpoint. Mode terkelola: `DEEPSEEK_URL` bawaan `<SUPABASE_URL>/functions/v1/llm-proxy`. |
 | `DEEPSEEK_PRICE_INPUT_MISS/HIT`, `DEEPSEEK_PRICE_OUTPUT` | `0.15` / `0.003` / `0.60` | USD per 1 juta token, tarif **off-peak**. |
 | `DEEPSEEK_PEAK_MULTIPLIER` | `2` | Pengali tarif saat jam peak. Isi `1` untuk mematikan. |
 | `USD_TO_IDR` | `18000` | Kurs untuk estimasi rupiah (hanya tampilan). |
@@ -85,7 +109,10 @@ bila aplikasi dipindah ke server lain dicatat di bagian 9.
 | `LLM_OUTPUT_SCALE` | `1` ollama / `1.75` deepseek | Pengali plafon token output (hanya plafon, bukan target). |
 | `KEEP_SERVER_PDFS` / `KEEP_SERVER_JSON` | `false` / `false` | Salinan opsional di `data/`. |
 | `APP_USERNAME` / `APP_PASSWORD` | `slr-user` / kosong | HTTP Basic Auth. Kosong = tanpa auth (peringatan dicetak bila provider deepseek). |
-| `HOST` / `PORT` | `0.0.0.0` / `5000` | Alamat dan port saat `python app.py`. `HOST=127.0.0.1` = hanya komputer ini. |
+| `HOST` / `PORT` | `0.0.0.0` / `5000` | Alamat dan port saat `python app.py`. `HOST=127.0.0.1` = hanya komputer ini. Mode terkelola: `HOST` bawaan `127.0.0.1`. |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | kosong | Diisi admin di `.env.example`. Keduanya terisi (dan `USER_AUTH` bukan `off`) = mode terkelola aktif. Anon key aman dipublikasikan (bagian 9.1). |
+| `USER_API_KEY` | kosong | Key pribadi pengguna (`slr_` + 48 heksadesimal), ditulis otomatis ke `.env` oleh `/signup`. Jangan di-commit. |
+| `USER_AUTH` | kosong | `off` (atau `0`/`false`/`no`) mematikan mode terkelola walau Supabase terisi. Dipakai admin saat pengembangan dan di `tests/test_routes.py`. |
 
 Bawaan batas bergantung provider karena model lokal 8B berkonteks sempit, sedangkan API berkonteks besar.
 `MAX_CONTENT_LENGTH` Flask dihitung dari `MAX_FILES_PER_BATCH × ukuran file + 5 MB`; error 413 ditangani.
@@ -176,6 +203,7 @@ dengan baris final (token masuk/keluar, cache, detik, biaya). Retry dicatat seba
 | `GET /app` | ya | Workspace (`index.html`). Tombol di landing mengarah ke sini; `/app#<id-tab>` membuka tab langsung. |
 | `GET /api/health` | ya | Status AI + limits (`max_files_per_batch`, `max_file_mb`, `max_text_chars`, `synth_batch_size`, `keep_server_*`) + `pricing` (periode, waktu pergantian, tarif efektif; `null` untuk Ollama). |
 | `GET /api/test-ai` | ya | Satu panggilan kecil non-streaming untuk uji koneksi/JSON; mengembalikan `usage`. |
+| `GET`/`POST /signup` | tidak | Hanya mode terkelola (`user_auth.py`). GET menampilkan form; POST mendaftar dan menulis `USER_API_KEY` ke `.env`. Bila sudah terdaftar atau mode mati, dialihkan ke `/app`. Gerbang `_gate` mengalihkan jalur lain ke sini selama key kosong (bagian 9.1). |
 
 `auth_guard` memakai HTTP Basic Auth bila `APP_PASSWORD` terisi (perbandingan string biasa, bukan constant-time;
 cukup untuk prototype di atas HTTPS).
@@ -403,6 +431,10 @@ Semua panggilan AI melewati `llm_json(prompt, max_output_tokens, usage, progress
 - `extract_json()` toleran terhadap pagar markdown dan teks di sekitar objek.
 - Error HTTP DeepSeek dipetakan ke pesan Indonesia (401 key salah, 402 saldo habis, 429 rate limit, 5xx).
 - Timeout socket 600 detik per panggilan.
+- **Mode terkelola:** `llm_json` tidak berubah. `DEEPSEEK_URL` menunjuk ke proxy dan `Authorization: Bearer` berisi `USER_API_KEY`
+  (bukan key DeepSeek). Proxy mengganti key, memaksa `stream_options.include_usage` pada streaming, dan meneruskan respons
+  apa adanya. Galat dari proxy memakai bentuk `{"error":{"message":...}}` seperti DeepSeek. Arti kode di mode ini: 401 = key
+  pengguna tidak valid/tidak dikenal, 403 = akun dinonaktifkan, 429 = kuota harian akun habis, 402 = saldo DeepSeek admin habis.
 
 Menambah provider baru: tambahkan nilai di `LLM_PROVIDER`, blok config (MODEL, AI_URL, AI_CONFIGURED,
 CONFIG_ERROR, PROVIDER_LABEL), cabang payload/headers di `llm_json`, parser di `read_llm_stream`, dan cabang di
@@ -420,6 +452,11 @@ Fakta yang sudah diverifikasi terhadap dashboard DeepSeek: jumlah token dan juml
 hitungan app; dashboard memotong (bukan membulatkan) biaya ke dua desimal sehingga untuk perbandingan gunakan
 token/request atau tinggi grafik. Tarif dan jadwal peak bersumber dari dokumentasi/aggregator publik dan **bisa
 berubah**; hari libur nasional China (off-peak) tidak dimodelkan, sehingga estimasi bisa sedikit tinggi pada hari itu.
+
+Mode terkelola punya dua penghitung dari blok `usage` yang sama: popup token di app (per browser/laptop, bisa di-reset) dan tabel
+`token_logs` di Supabase (per akun, dicatat proxy, tidak bisa diubah dari klien). Terverifikasi pada uji nyata: 10 jurnal menghasilkan
+10 baris `token_logs`, dan tiap panggilan sintesis (termasuk percobaan ulang) cocok persis dengan baris log proses di app. Biaya rupiah
+hanya ada di popup (dihitung klien); `token_logs` menyimpan token, bukan biaya.
 
 Pola biaya: output mendominasi (≈ dua pertiga biaya), cache hit jarang karena dokumen berbeda, sintesis memproses
 ulang **semua** artikel INCLUDE setiap kali dijalankan (tidak inkremental). Retry menggandakan biaya panggilan itu.
@@ -457,10 +494,78 @@ sudut persegi, font IBM Plex Mono, warna terbalik untuk state aktif. Warna di SV
 (taxonomy, co-occurrence, system map) di-hardcode di `app.js` dan harus diselaraskan manual bila tema diubah.
 Ada stylesheet cetak (`@media print`) untuk PRISMA.
 
-## 9. Batasan arsitektur untuk deployment (belum ditentukan)
+## 9. Deployment: distribusi terkelola (9.1) dan batasan bila di-host (9.2)
 
-Repo ini tidak membawa konfigurasi platform apa pun. Bila aplikasi nanti dipindah dari komputer lokal ke server lain,
-hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tujuan:
+### 9.1 Distribusi saat ini: aplikasi lokal + Supabase
+
+Aplikasi berjalan di laptop pengguna. Yang ada di cloud hanya Supabase (akun, catatan token, proxy AI).
+
+```
+Landing statis publik ──► tautan Python 3.12, Git, perintah git clone
+Laptop pengguna
+  slr-protocol.bat ─► git pull ─► .env minimal ─► venv + pip ─► buka browser ─► python app.py
+  Flask lokal (127.0.0.1:5000)
+    ├─ USER_API_KEY kosong ─► redirect /signup ─► RPC register_user ─► tulis key ke .env
+    └─ USER_API_KEY terisi ─► llm_json ─► Edge Function llm-proxy ─► DeepSeek (key admin)
+                                              └─► insert token_logs (service role)
+```
+
+**Aktivasi.** Mode terkelola aktif bila `SUPABASE_URL` dan `SUPABASE_ANON_KEY` terisi dan `USER_AUTH` bukan `off`. Efeknya
+(`user_auth.prepare_env`): `LLM_PROVIDER=deepseek`, `DEEPSEEK_URL` bawaan ke proxy, `DEEPSEEK_API_KEY` diambil dari `USER_API_KEY`,
+`HOST` bawaan `127.0.0.1`, dan semua nilai terisi di `.env.example` menjadi bawaan (prioritas di bagian 3).
+
+**Urutan di `app.py` (jangan dibalik):** `load_dotenv(.env)` → `user_auth.prepare_env(BASE_DIR)` → konstanta provider dibaca →
+`user_auth.init(app, ENV_FILE, on_new_key=_apply_user_key)`. `prepare_env` harus sebelum konstanta provider karena nilai dibaca saat import.
+
+**`user_auth.py`.**
+- `before_request` `_gate`: bila mode aktif dan `USER_API_KEY` kosong, semua jalur dialihkan ke `/signup` (HTML) atau dijawab 401 JSON
+  (`/api/*`), kecuali awalan `/signup`, `/static/`, `/api/health`.
+- `/signup` (GET/POST): memanggil RPC `register_user(p_username)` lewat `urllib` ke `<SUPABASE_URL>/rest/v1/rpc/register_user`
+  (header `apikey`; `Authorization: Bearer` hanya bila anon key berawalan `eyJ`, yaitu JWT gaya lama). Galat SQL (`USERNAME_INVALID`,
+  `USERNAME_TAKEN`) dipetakan ke pesan Indonesia di `ERRORS`.
+- Sukses: key ditulis ke `.env` lewat `write_env_value` (ganti hanya baris `USER_API_KEY=`, tulis ke `.env.tmp` lalu `os.replace`),
+  `os.environ` diperbarui, dan `_apply_user_key` mengubah `DEEPSEEK_API_KEY` serta `AI_CONFIGURED` tanpa restart. Bila `.env` tidak bisa
+  ditulis, key ditampilkan sekali di layar agar ditempel manual.
+
+**Skema Supabase (`supabase/schema.sql`, idempotent).**
+- `users(id, username, api_key_hash, is_active, daily_token_limit, created_at)`; username unik tanpa membedakan huruf besar/kecil;
+  `daily_token_limit` null = tanpa batas (bawaan). Key asli tidak disimpan, hanya SHA-256.
+- `token_logs(id, user_id, model_name, prompt_tokens, cache_hit_tokens, completion_tokens, total_tokens, created_at)`.
+- RLS aktif di semua tabel **tanpa policy**, dan hak `anon`/`authenticated` dicabut. Satu-satunya fungsi terbuka untuk anon:
+  `register_user(p_username)` (SECURITY DEFINER; mengembalikan `slr_` + 48 heksadesimal, sekali saja). `check_user(p_key_hash)`
+  hanya untuk `service_role`; menghitung status `ok`/`disabled`/`quota` dengan hari berdasarkan zona `Asia/Jakarta`.
+- View `usage_per_user` (security invoker) untuk pemantauan. Blok hak akses harus tetap paling akhir di berkas.
+
+**Edge Function `llm-proxy`.** Alur: ambil `Bearer` → wajib berawalan `slr_` → hash → `check_user` → 401/403/429 bila tidak lolos →
+teruskan body (dengan `include_usage` dipaksa untuk stream) ke `DEEPSEEK_URL` memakai secret `DEEPSEEK_API_KEY` → alirkan balik respons
+(`body.tee()`, satu cabang ke klien) → di cabang lain `EdgeRuntime.waitUntil(recordUsage)` membaca salinan, mengambil blok `usage` dari
+**2 event SSE terakhir** (hemat CPU), lalu insert ke `token_logs` dengan **3 percobaan** (jeda 400 ms × n). Kegagalan mencatat hanya
+di-log (`insert token_logs gagal (percobaan n/3)`) dan **tidak** menggagalkan jawaban ke pengguna. Respons error dari DeepSeek
+diteruskan tanpa dicatat. Secret: `DEEPSEEK_API_KEY` (wajib), `DEEPSEEK_URL` (opsional). Deploy lewat dashboard (tab Code) atau
+`supabase functions deploy llm-proxy --no-verify-jwt`; **Verify JWT harus mati** karena autentikasi memakai key `slr_`, bukan JWT Supabase.
+Isi proxy **tidak ikut `git pull`**: setiap perubahan `index.ts` perlu deploy ulang manual, lalu cek Verify JWT masih mati.
+
+**Pemasangan awal (admin).** (1) jalankan `schema.sql`; (2) buat/deploy `llm-proxy`, matikan Verify JWT, isi secret; (3) isi `SUPABASE_URL` dan
+`SUPABASE_ANON_KEY` (berlabel anon/publishable, **bukan** secret/service_role) di `.env.example`, commit, push. Uji berurutan:
+`curl -X POST <url>/functions/v1/llm-proxy -H "Authorization: Bearer asal" -d "{}"` harus 401 dengan pesan "API key tidak valid"
+(bukan `Invalid JWT`); `curl <url>/rest/v1/users?select=* -H "apikey: <anon>"` harus `permission denied` (jangan menuruti saran
+`GRANT` pada pesan itu); clone bersih → `slr-protocol.bat` → daftar → `/api/test-ai` → satu baris baru di `token_logs`.
+
+**Operasi harian.** Pantau lewat view `usage_per_user`. Blokir dengan `users.is_active=false`. Batas per akun lewat `users.daily_token_limit`.
+Key hilang tidak bisa dipulihkan (hash): ubah `username` akun lama, lalu pengguna mendaftar ulang.
+
+**Pembaruan ke pengguna.** `git push` ke repo; pengguna menerimanya saat menjalankan `slr-protocol.bat` berikutnya (aplikasi yang sedang
+terbuka tidak ikut berubah). Mengganti nama `.bat` yang sedang berjalan membuat jalankan pertama pengguna lama tertutup di tengah (Windows membaca `.bat`
+baris demi baris); setelah itu normal.
+
+**Batas Supabase free plan yang dipakai** (dari dokumentasi Supabase saat dokumen ini ditulis; cek lagi sebelum bergantung padanya): waktu
+dinding Edge Function 150 detik, waktu CPU 2 detik per request, kuota invokasi bulanan, dan proyek free bisa di-pause bila lama tidak aktif.
+Teramati pada uji nyata: panggilan LLM terlama ±18 detik, CPU maksimum 105 ms, 5xx 0%.
+
+### 9.2 Bila di-host di server (belum ditentukan)
+
+Bagian ini untuk kasus aplikasi dijalankan di server, bukan di laptop pengguna. Repo tidak membawa konfigurasi platform apa pun.
+Hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tujuan:
 
 - **Satu proses/worker.** Progres analisis dan sintesis disimpan di memori proses (`Progress`). Dengan banyak worker,
   polling progres bisa mendarat di proses lain dan melihat job kosong. Konkurensi (request analisis panjang + polling)
@@ -475,16 +580,22 @@ hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
   bersifat sementara, biarkan `KEEP_SERVER_PDFS=false` dan `KEEP_SERVER_JSON=false` (bawaan); aplikasi tidak membaca
   kembali salinan itu.
 - **Health check.** `/api/health` dilindungi Basic Auth bila `APP_PASSWORD` diisi, jadi pemeriksa kesehatan yang tidak
-  mengirim kredensial akan menerima 401.
-- **Rahasia dan akses.** `DEEPSEEK_API_KEY` dan `APP_PASSWORD` hanya lewat environment atau secret manager, jangan
+  mengirim kredensial akan menerima 401. (Gerbang mode terkelola membiarkan `/api/health` terbuka.)
+- **Rahasia dan akses.** `DEEPSEEK_API_KEY` (mode mandiri) dan `APP_PASSWORD` hanya lewat environment atau secret manager, jangan
   pernah di-commit. `APP_PASSWORD` wajib bila aplikasi dapat dijangkau orang lain (tanpa itu siapa pun memakai saldo API),
-  dan HTTPS wajib karena Basic Auth, `crypto.subtle`, dan Clipboard API bergantung padanya.
+  dan HTTPS wajib karena Basic Auth, `crypto.subtle`, dan Clipboard API bergantung padanya. Mode terkelola dirancang untuk
+  aplikasi di localhost; menaruhnya di server publik butuh peninjauan ulang (gerbang `/signup` hanya memeriksa keberadaan `USER_API_KEY` di `.env` server, bukan per pengunjung).
 
 ## 10. Verifikasi dan pengujian
 
 Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (49-53 pengecekan pada data nyata, ekspektasinya dihitung dari state proyek, bukan diasumsikan).
 
-Tes rute dan Arah Riset (tanpa jaringan): `python tests/test_arah_riset.py` dan `python tests/test_routes.py`. Skrip jsdom memuat `/app` (bukan `/`, yang kini landing).
+Tes rute dan Arah Riset (tanpa jaringan): `python tests/test_arah_riset.py` dan `python tests/test_routes.py`. `test_routes.py` mengatur
+`USER_AUTH=off` sebelum mengimpor `app` supaya gerbang signup tidak mengalihkan halaman. Saat dokumen ini ditulis, satu pengecekan
+di sana (`tautan Beranda di sidebar`) gagal dan sudah gagal sebelum mode terkelola ditambahkan; belum diperbaiki.
+Tes mode terkelola (tanpa jaringan, `_rpc` ditiru): `python tests/test_user_auth.py` (22 pengecekan: pengalihan ke `/signup`, 401 untuk `/api/*`,
+pendaftaran berhasil/gagal, penulisan `.env` tanpa merusak baris lain, key aktif tanpa restart, fallback tampil key, `HOST` bawaan,
+lapisan `.env.example`). Edge Function dan SQL **belum punya tes otomatis**; ujinya manual (bagian 9.1). Skrip jsdom memuat `/app` (bukan `/`, yang kini landing).
 
 Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
@@ -513,15 +624,19 @@ Urut kira-kira berdasarkan dampak:
    server atau proxy dengan batas waktu request, batch besar bisa terputus. Perbaikan yang direncanakan: jalankan
    pekerjaan di background thread/antrian, kembalikan `job_id` segera, dan biarkan frontend polling sampai selesai
    (kerangka `Progress`/`job_id` sudah ada). Sampai itu dibuat, hasil yang sudah dibayar bisa hilang bila koneksi putus.
+   Pada mode terkelola, batas waktu Edge Function (150 detik di free plan) berlaku **per panggilan LLM**, bukan per request
+   `/api/analyze`, karena tiap PDF adalah satu panggilan; panggilan terlama yang teramati ±18 detik.
 2. **Progres di memori, satu proses.** Hilang saat restart; tidak bekerja dengan banyak worker. Perlu penyimpanan
    bersama (mis. Redis) bila di-scale.
-3. **Tanpa akun / multi-user.** Satu password bersama. Proyek ada di browser masing-masing. Belum ada audit trail.
+3. **Akun hanya untuk pencatatan dan pemblokiran.** Mode terkelola punya akun per pengguna di Supabase, tetapi aplikasi lokalnya tidak
+   memisahkan data antarpengguna: siapa pun yang memegang laptop itu memakai `USER_API_KEY` di `.env`-nya. Mode mandiri memakai satu password
+   bersama (Basic Auth). Proyek ada di browser masing-masing. Belum ada audit trail.
 4. **Sintesis tidak inkremental** dan ekstraksi **tidak di-cache**: PDF yang sama dengan pengaturan sama tetap
    dipanggil ulang bila lolos pre-check (mis. browser lain). Ide: cache ekstraksi berkunci hash + konteks review +
    model + `MAX_TEXT_CHARS`.
 5. **Tidak ada OCR.** PDF scan ditolak dengan pesan jelas.
-6. **Bawaan `HOST=0.0.0.0`** saat `python app.py`: dapat diakses dari perangkat lain di jaringan yang sama. Isi
-   `HOST=127.0.0.1` bila hanya dipakai di komputer ini, dan/atau `APP_PASSWORD`.
+6. **Bawaan `HOST=0.0.0.0` di mode mandiri** saat `python app.py`: dapat diakses dari perangkat lain di jaringan yang sama. Isi
+   `HOST=127.0.0.1` bila hanya dipakai di komputer ini, dan/atau `APP_PASSWORD`. Mode terkelola sudah bawaan `127.0.0.1`.
 7. **Auth sederhana** (Basic Auth, tanpa rate limit/lockout). Wajib HTTPS bila diakses lewat jaringan publik.
 8. **Tes otomatis hanya mencakup logika murni dan alur backend dengan LLM tiruan**; belum ada CI dan belum ada
    tes browser di repo. Kualitas label AI sendiri (akurasi klasifikasi) belum diukur: perlu audit sampel manual.
@@ -536,6 +651,16 @@ Urut kira-kira berdasarkan dampak:
 14. Aturan recall self-reference hanya untuk `case_study`; label eksplisit lain yang terlewat AI tetap terlewat.
 15. **Kualitas usulan normalisasi AI belum terukur pada korpus nyata** (uji memakai LLM tiruan dan pemetaan buatan tangan). Setelah persetujuan, kebenaran pengelompokan sepenuhnya tanggung jawab pengguna. Jumlah artikel pada item hasil pisah (×) tidak diketahui di editor, tetapi pohon menghitungnya ulang dari data artikel.
 16. Pemotongan teks tetap bisa menghilangkan bagian tengah (hasil/diskusi) pada artikel yang sangat panjang.
+17. **Proxy meneruskan body apa adanya.** Pengguna terdaftar yang memodifikasi klien dapat mengirim prompt, model, dan `max_tokens` bebas
+    lewat proxy memakai saldo admin. Pencatatan dan pemblokiran akun adalah mitigasinya. Belum ada daftar model yang diizinkan atau plafon `max_tokens` di proxy.
+18. **Pendaftaran terbuka tanpa kode undangan dan tanpa pembatasan laju.** Disengaja agar bisa dipakai umum. Akibatnya akun sampah dan
+    pemakaian tak wajar mungkin terjadi; `daily_token_limit` bawaan kosong (tanpa batas). Penanganannya manual: pantau `usage_per_user`, blokir `is_active=false`.
+19. **Key pengguna tidak dapat dipulihkan** (hanya hash disimpan). Ganti laptop atau `.env` hilang berarti akun baru dengan nama lain; admin mengganti nama akun lama.
+20. **Pencatatan token bisa kurang bila semua 3 percobaan insert gagal** (hanya muncul di log fungsi). Dasar: satu baris hilang teramati pada
+    uji awal sebelum ada percobaan ulang; sesudahnya tidak teramati lagi pada uji kecil.
+21. **Proxy dan skema Supabase tidak ikut `git pull`** dan belum punya tes otomatis maupun versi/migrasi. Perubahan perlu deploy manual.
+22. **Ketergantungan Supabase free plan.** Proyek bisa di-pause saat lama tidak aktif (aplikasi pengguna gagal daftar/memanggil AI sampai diaktifkan lagi); saldo DeepSeek admin dipakai bersama semua pengguna.
+23. **`.env.example` langsung berlaku ke semua pengguna** begitu mereka menjalankan `slr-protocol.bat` lagi; tidak ada tahap uji bertahap. Aplikasi yang sedang terbuka tidak ikut berubah sampai dimulai ulang.
 
 ## 12. Panduan perubahan cepat
 
@@ -544,19 +669,27 @@ Urut kira-kira berdasarkan dampak:
 | Menambah/mengubah field ekstraksi artikel | `article_prompt` (skema), pembentukan `record` di `analyze_pdfs`, `compact_article`, lalu `renderArticleDetail` di `app.js` |
 | Mengubah perilaku sintesis | `batch_synthesis_prompt`, `reduce_summaries_prompt`, `final_synthesis_prompt`, `taxonomy_only_prompt`; bentuk keluaran dipakai `renderSynthesis`/`renderTaxonomy`/`renderSystemMap` |
 | Menambah/mengubah nilai research onion | `RESEARCH_ONION` (+ `METHOD_GROUPS`, naikkan `CODEBOOK_VERSION`); prompt, validasi, dan taksonomi mengikuti otomatis |
-| Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py` |
+| Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py`. Untuk semua pengguna mode terkelola: ubah di `.env.example` (atau bawaan di kode), lalu push |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
 | Mengubah kategori/istilah query Arah Riset | `arah_riset_data/vocab_en.json` (istilah, urutan = prioritas), `arah_riset.py` (`RQ_TEMPLATE`, kriteria, `max_ops`) |
 | Mengubah tampilan landing | `templates/landing.html` + `static/landing.css` (terpisah dari workspace; `:root`-nya salinan dari `style.css`) |
 | Menambah tab/halaman | `index.html` (tombol `data-target` + `section.page-section`), `navigate`/`renderAll` di `app.js` |
 | Mengubah tema | variabel `:root` di `style.css` + warna SVG di `app.js` |
-| Menambah kredensial/rahasia | `.env` (dan secret manager platform bila nanti ada deployment); jangan pernah commit nilainya |
+| Menambah kredensial/rahasia | `.env` mandiri, atau secret Supabase untuk proxy; jangan pernah commit nilainya dan jangan taruh di `.env.example` |
+| Mengubah tabel, fungsi, atau view Supabase | `supabase/schema.sql` lalu jalankan di SQL Editor (jaga blok hak akses tetap paling akhir) |
+| Mengubah perilaku proxy (batas, model, pencatatan) | `supabase/functions/llm-proxy/index.ts` lalu deploy ulang manual; cek Verify JWT masih mati |
+| Mengubah halaman pendaftaran | `templates/signup.html` (CSS inline, tema sama dengan landing); pesan galat di `ERRORS` dalam `user_auth.py` |
+| Mengganti nama atau isi peluncur Windows | `slr-protocol.bat` (CRLF; hindari tanda `)` pada teks `echo` di dalam blok `( ... )`; panggil `git` dengan `call`) lalu perbarui teks `slr-protocol.bat` di landing, `signup.html`, README |
 
 ## 13. Konvensi untuk kontributor
 
 - Pertahankan gaya satu-berkas; komentar singkat, jelaskan **mengapa**, bukan apa.
 - Semua teks yang tampil ke pengguna dalam bahasa Indonesia, nada ringkas dan jelas.
 - Semua data dari AI atau PDF yang masuk `innerHTML` harus melewati `esc()`.
-- Jangan menyimpan rahasia di repo; `.env` ada di `.gitignore`. Rotasi key bila pernah ter-commit.
+- Jangan menyimpan rahasia di repo; `.env` ada di `.gitignore`. Rotasi key bila pernah ter-commit. `.env.example` publik dan menjadi bawaan
+  semua pengguna terkelola: tidak boleh berisi `DEEPSEEK_API_KEY`, `service_role`/secret key Supabase, atau password apa pun.
+  Cek `git ls-files .env` kosong sebelum push.
+- Berkas `.bat` harus CRLF (`.gitattributes` menanganinya) dan hanya berisi ASCII.
+- Perubahan di `.env.example`, `slr-protocol.bat`, dan kode langsung sampai ke semua pengguna saat mereka menjalankan peluncur; uji di clone bersih sebelum push.
 - Jalankan pemeriksaan di bagian 10 sebelum commit. Hindari mengubah kunci `localStorage` dan skema record artikel
   tanpa jalur migrasi (data pengguna ada di browser mereka dan di file ekspor).

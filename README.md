@@ -6,8 +6,11 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
 
 - **Backend:** Python + Flask (satu berkas, `app.py`).
 - **Frontend:** HTML/CSS/JavaScript biasa, tanpa framework dan tanpa build step.
-- **AI:** pilih satu lewat `.env`: **Ollama lokal** (gratis) atau **DeepSeek API** (berbayar per token).
-- **Penyimpanan:** tidak ada database. Proyek disimpan di browser (`localStorage`) dan dicadangkan lewat Ekspor JSON.
+- **AI:** dua mode. **Terkelola** (untuk dibagikan ke banyak orang): pengguna mendaftar sekali dan AI (DeepSeek) berjalan lewat
+  proxy milik admin, jadi tidak perlu API key sendiri. **Mandiri**: pilih satu lewat `.env`, **Ollama lokal** (gratis) atau
+  **DeepSeek API** dengan key sendiri (berbayar per token).
+- **Akun dan token (mode terkelola):** Supabase menyimpan akun, API key per pengguna (dalam bentuk hash), dan catatan pemakaian token.
+- **Penyimpanan proyek:** tidak ada database untuk proyek. Proyek disimpan di browser (`localStorage`) dan dicadangkan lewat Ekspor JSON.
 
 > Dokumentasi teknis lengkap (arsitektur, alur data, API, konvensi) ada di [`CLAUDE.md`](CLAUDE.md).
 
@@ -39,17 +42,47 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
 
 ## Prasyarat
 
-- Python 3.10 atau lebih baru (disarankan 3.11/3.12) dan browser modern.
-- **Salah satu** dari:
+- Windows (peluncur `slr-protocol.bat`), atau OS apa pun dengan cara manual di bawah.
+- Python 3.12 (3.10 atau lebih baru juga bisa) dan Git. Pemasang untuk keduanya ada di halaman panduan.
+- Browser modern.
+- **Mode terkelola:** tidak ada tambahan. Kamu tidak perlu API key.
+- **Mode mandiri:** salah satu dari
   - Ollama terpasang dengan model, misalnya `ollama pull qwen3-vl:8b-instruct`; atau
   - API key DeepSeek dari https://platform.deepseek.com/api_keys (pastikan saldo terisi).
 
-## Menjalankan di komputer sendiri
+## Menjalankan
 
-**Windows:** jalankan `start_windows.bat`. Pertama kali, file `.env` dibuat dari `.env.example` dan dibuka di
-Notepad. Isi pengaturan, simpan, lalu jalankan skrip lagi.
+### Mode terkelola (pengguna biasa)
 
-**Manual (semua OS):**
+Aktif bila `SUPABASE_URL` dan `SUPABASE_ANON_KEY` terisi di `.env.example` (admin yang mengisinya).
+
+**Sekali di awal**
+
+1. Pasang Python 3.12 (centang "Add Python to PATH") dan Git.
+2. Buka terminal lalu jalankan `git clone <URL_REPO>`.
+
+**Setiap kali memakai**
+
+1. Masuk ke folder hasil clone, klik dua kali `slr-protocol.bat`.
+2. Skrip menarik pembaruan (`git pull`), menyiapkan lingkungan Python dan paket, menjalankan aplikasi, lalu membuka
+   browser ke http://127.0.0.1:5000. Pertama kali butuh beberapa menit. Biarkan jendela hitamnya terbuka selama aplikasi dipakai.
+3. **Pertama kali** kamu diarahkan ke `/signup`. Isi nama pengguna atau email, lalu API key pribadimu dibuat dan ditulis
+   otomatis ke file `.env`. Setelah itu tidak perlu mendaftar lagi.
+
+Catatan:
+
+- Landing page ada di `/`, workspace di `/app`, uji koneksi AI di `/api/test-ai`.
+- Di mode ini server hanya bisa dibuka dari komputer sendiri (`HOST=127.0.0.1` bawaan).
+- File `.env`-mu hanya berisi `USER_API_KEY`. Jangan dibagikan. Pengaturan lain (model, batas, tarif) datang dari
+  `.env.example` dan ikut diperbarui lewat `git pull`. Bila kamu menulis sendiri sebuah variabel di `.env`, nilaimu yang dipakai.
+- Pembaruan kode berlaku saat `slr-protocol.bat` dijalankan lagi. Aplikasi yang dibiarkan terbuka berhari-hari tidak ikut berubah sampai dimulai ulang.
+- Tips: klik kanan `slr-protocol.bat` → Send to → Desktop (create shortcut), lalu Properties → Change Icon dan pilih
+  `static/slr.ico`. Jangan memindahkan folder aplikasinya setelah itu.
+
+### Mode mandiri (tanpa Supabase, atau untuk pengembangan)
+
+Berlaku bila `SUPABASE_URL` kosong, atau bila `.env`-mu berisi `USER_AUTH=off`. Di mode ini `.env.example` hanya contoh
+dan tidak dibaca otomatis.
 
 ```bash
 python -m venv .venv
@@ -62,11 +95,14 @@ python app.py
 Buka http://127.0.0.1:5000 (landing page); workspace ada di http://127.0.0.1:5000/app. Untuk menguji koneksi AI tanpa upload PDF, buka `/api/test-ai`.
 Pill status di pojok kanan atas harus menampilkan "Model siap".
 
-Secara bawaan server dapat dibuka dari perangkat lain di jaringan yang sama (`HOST=0.0.0.0`). Isi `HOST=127.0.0.1`
+`slr-protocol.bat` juga bisa dipakai di mode ini, tetapi ia membuat `.env` minimal (hanya `USER_API_KEY=`). Tambahkan
+pengaturan AI-mu ke file itu.
+
+Di mode mandiri server dapat dibuka dari perangkat lain di jaringan yang sama (`HOST=0.0.0.0` bawaan). Isi `HOST=127.0.0.1`
 di `.env` agar hanya komputer ini yang bisa membukanya, dan isi `APP_PASSWORD` bila orang lain dapat menjangkaunya,
 karena tanpa itu siapa pun bisa memakai saldo API-mu.
 
-### Memilih provider AI
+### Memilih provider AI (mode mandiri)
 
 Atur di `.env`, lalu restart aplikasi (`.env` hanya dibaca saat start):
 
@@ -81,7 +117,8 @@ OLLAMA_MODEL=qwen3-vl:8b-instruct
 ```
 
 Semua variabel (model, tarif, batas, saklar penyimpanan) dijelaskan di [`.env.example`](.env.example).
-Nilai yang tertulis di `.env` selalu mengalahkan nilai bawaan.
+Nilai yang tertulis di `.env` selalu mengalahkan nilai bawaan. Di mode terkelola, provider selalu DeepSeek lewat proxy
+dan pengaturan provider di atas diabaikan.
 
 ### Batas bawaan
 
@@ -97,6 +134,9 @@ limitasi, saran riset) ikut terbaca. Semua batas dapat diubah lewat `.env`.
 
 ## Biaya DeepSeek
 
+Di mode terkelola, biaya ditanggung admin lewat key DeepSeek yang tersimpan di server (kamu tidak ditagih). Popup token di
+aplikasi tetap menghitung pemakaian dari komputermu. Penjelasan di bawah berlaku untuk keduanya.
+
 - Tarif dihitung per juta token: input (cache miss), input (cache hit), dan output. Bawaan di `.env.example`
   mengikuti tarif `deepseek-flash` **off-peak**; saat **peak** tarif dikali 2.
 - **Peak:** Senin–Jumat 01:00–04:00 dan 06:00–10:00 UTC (= 08:00–11:00 dan 13:00–17:00 WIB). Di luar itu dan di
@@ -105,6 +145,30 @@ limitasi, saran riset) ikut terbaca. Semua batas dapat diubah lewat `.env`.
 - Rupiah di popup hanyalah estimasi dari `USD_TO_IDR`. Dashboard DeepSeek menagih dalam USD dan menampilkan
   biaya dipotong ke dua desimal, jadi untuk membandingkan gunakan jumlah token dan jumlah request.
 - Tarif bisa berubah. Cek https://api-docs.deepseek.com/quick_start/pricing dan sesuaikan `DEEPSEEK_PRICE_*`.
+
+## Untuk admin: akun, proxy, dan pemantauan (mode terkelola)
+
+Alur panggilan AI: aplikasi di laptop pengguna → Supabase Edge Function `llm-proxy` → DeepSeek. Proxy memeriksa API key
+pengguna (`slr_...`), memastikan akunnya aktif dan belum melewati batas harian, meneruskan permintaan memakai key DeepSeek
+milikmu (disimpan sebagai secret Supabase, tidak pernah sampai ke laptop pengguna), lalu mencatat token ke tabel `token_logs`.
+
+Pasang sekali:
+
+1. Supabase → SQL Editor: jalankan `supabase/schema.sql`.
+2. Edge Functions: buat fungsi `llm-proxy` dari `supabase/functions/llm-proxy/index.ts`, **matikan Verify JWT**, lalu isi secret `DEEPSEEK_API_KEY`.
+3. Isi `SUPABASE_URL` dan `SUPABASE_ANON_KEY` (kunci berlabel anon/publishable, bukan secret) di `.env.example`, lalu commit dan push.
+
+Sehari-hari (Table Editor atau SQL Editor):
+
+- **Pantau:** view `usage_per_user` (total token, token hari ini, terakhir dipakai per akun).
+- **Blokir:** set `users.is_active = false`.
+- **Batas harian:** isi `users.daily_token_limit` (kosong = tanpa batas, bawaan).
+- **Pengguna ganti laptop atau `.env` hilang:** key tidak bisa ditampilkan ulang karena hanya hash yang disimpan. Ubah `username` akun lamanya (mis. `budi_lama`), lalu minta dia mendaftar lagi.
+
+Yang dicatat: nama pengguna atau email, hash API key, dan per panggilan AI jumlah token, nama model, serta waktu. Isi PDF dan hasil
+analisis tidak disimpan di Supabase. Teks artikel diteruskan ke DeepSeek dan tunduk pada kebijakan DeepSeek.
+
+Detail arsitektur, keamanan, dan batasannya ada di [`CLAUDE.md`](CLAUDE.md) bagian 9.1.
 
 ## Cara menggunakan
 
@@ -126,25 +190,30 @@ limitasi, saran riset) ikut terbaca. Semua batas dapat diubah lewat `.env`.
 - **Impor menimpa seluruh proyek** di browser, bukan menggabungkan.
 - Salinan PDF/JSON di server bersifat opsional dan **mati secara bawaan**
   (`KEEP_SERVER_PDFS`, `KEEP_SERVER_JSON`); aplikasi tidak membacanya kembali.
+- Mode terkelola: Supabase hanya menyimpan akun dan catatan token (lihat bagian admin di atas), bukan proyekmu.
 
 ## Aset gambar
 
-Antarmuka memakai tiga gambar di folder `static/` yang tidak ikut dalam kerangka repo ini; letakkan sendiri:
-`slr.png` (logo dan favicon), `latte0nim.jpg` (avatar credit di sidebar), dan `qris.png` (QRIS pada popup token).
-Aplikasi tetap berjalan tanpa mereka. Kotak QRIS menyembunyikan diri bila `qris.png` tidak ada, sedangkan
-logo dan avatar akan tampil sebagai gambar rusak.
+Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit),
+`qris.png` (QRIS pada popup token, kotaknya menyembunyikan diri bila gambar tidak ada), dan `slr.ico` (ikon untuk shortcut Windows).
 
 ## Pemecahan masalah
 
 | Gejala | Penyebab umum |
 |---|---|
-| "API key belum dipasang" | `DEEPSEEK_API_KEY` kosong, atau lupa restart setelah mengubah `.env` |
+| "API key belum dipasang" | Mode mandiri: `DEEPSEEK_API_KEY` kosong, atau lupa restart setelah mengubah `.env`. Mode terkelola: daftar dulu di `/signup` |
 | HTTP 401 dari DeepSeek | API key salah/belum aktif |
-| HTTP 402 dari DeepSeek | Saldo habis, top up di platform.deepseek.com |
-| HTTP 429 | Terkena rate limit, tunggu lalu coba lagi |
+| HTTP 402 dari DeepSeek | Saldo habis, top up di platform.deepseek.com (mode terkelola: saldo admin, kabari admin) |
+| HTTP 429 | Terkena rate limit, tunggu lalu coba lagi. Di mode terkelola bisa juga berarti batas token harian akunmu habis (pesannya menyebut kuota) |
 | Proyek tampak kosong | Alamat/port berbeda dari sebelumnya, atau data browser dibersihkan: impor file ekspor |
 | Teks "tidak terbaca" pada PDF | PDF hasil scan tanpa lapisan teks; belum ada OCR, jalankan OCR dulu |
 | Banyak "retry" di log | Output AI terpotong di batas token; naikkan `LLM_OUTPUT_SCALE` |
+| Selalu dialihkan ke `/signup` | `USER_API_KEY` di `.env` masih kosong. Selesaikan pendaftaran di halaman itu |
+| "Nama pengguna itu sudah dipakai" | Pilih nama lain. Bila itu akunmu yang lama (ganti laptop atau `.env` hilang), minta admin mengganti nama akun lama |
+| "Tidak bisa terhubung ke server" saat daftar | Koneksi internet bermasalah, atau proyek Supabase sedang tidak aktif (kabari admin) |
+| 401 "API key tidak dikenal" | `USER_API_KEY` di `.env` salah salin atau akunnya dihapus; hubungi admin |
+| 403 "Akun kamu dinonaktifkan" | Akun diblokir admin |
+| Jendela hitam `slr-protocol.bat` langsung tertutup | Jalankan lewat `cmd` (ketik `slr-protocol.bat` di folder aplikasi) supaya pesan errornya terbaca. Pembaruan `git pull` juga gagal bila kamu mengubah file kode |
 
 ## Keterbatasan dan integritas akademik
 
@@ -156,20 +225,28 @@ logo dan avatar akan tampil sebagai gambar rusak.
 - Screening satu reviewer dengan bantuan AI bukan pengganti penilaian kritis peneliti. Periksa semua keputusan,
   kutipan halaman, metodologi, dan temuan terhadap artikel aslinya.
 - AI dapat salah mengekstrak, menyimpulkan hubungan yang tidak didukung, atau melewatkan konteks.
-- Dengan DeepSeek, teks artikel dikirim ke server pihak ketiga. Jangan unggah materi rahasia atau yang tidak
-  boleh dibagikan.
-- Ini prototype untuk penggunaan riset: belum multi-user, tanpa audit trail formal atau quality appraisal standar.
+- Dengan DeepSeek, teks artikel dikirim ke server pihak ketiga (di mode terkelola lewat proxy admin lebih dulu). Jangan
+  unggah materi rahasia atau yang tidak boleh dibagikan.
+- Ini prototype untuk penggunaan riset. Akun di mode terkelola hanya untuk pencatatan token dan pemblokiran, bukan
+  pemisahan data antarpengguna. Tidak ada audit trail formal atau quality appraisal standar.
 
 ## Struktur repo
 
 ```
 app.py                  backend Flask (API, prompt, provider AI, progres, biaya)
-templates/index.html    satu halaman (semua tab)
-static/app.js           logika frontend (state, render, upload, progres, popup)
-static/style.css        tema terminal
+user_auth.py            mode terkelola: gerbang /signup, tulis USER_API_KEY ke .env, arahkan AI ke proxy
+arah_riset.py           Arah Riset (langkah 0, khusus TMI ITB)
+arah_riset_data/        data facet tesis dan kosakata query
+templates/index.html    workspace (semua tab)
+templates/landing.html  landing page di `/`
+templates/signup.html   halaman pendaftaran (mode terkelola)
+static/                 app.js, style.css, landing.css, gambar, slr.ico
+supabase/schema.sql     tabel, RLS, dan fungsi (jalankan di SQL Editor Supabase)
+supabase/functions/llm-proxy/index.ts   Edge Function proxy DeepSeek + pencatat token
+slr-protocol.bat        peluncur Windows (pull, venv, pip, jalankan, buka browser)
 requirements.txt        dependensi Python
-start_windows.bat       peluncur Windows
-.env.example            contoh konfigurasi
+.env.example            konfigurasi bersama: bawaan untuk semua pengguna di mode terkelola, contoh di mode mandiri
+.gitattributes          memaksa akhir baris Windows (CRLF) untuk file .bat
 tests/                  tes otomatis logika murni dan alur backend (tanpa jaringan)
 CLAUDE.md               dokumentasi teknis end-to-end
 ```
