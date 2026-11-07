@@ -554,3 +554,20 @@ body.formal .taxonomy-svg,body.formal .cooccur-svg,body.formal .system-map-canva
 .wip-label{display:inline-flex;align-items:center;gap:10px;font:700 12px var(--display,inherit);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .wip-tag{display:inline-block;padding:2px 10px;border:1px solid #fff;border-radius:999px;font:600 10px var(--display,inherit);letter-spacing:.04em;text-transform:none;background:rgba(0,0,0,.25)}
 .wip-text{flex:1 1 280px;min-width:0}
+
+/* Tutorial card (hero) */
+.hero-row{display:flex;align-items:center;justify-content:space-between;gap:32px}
+.tutorial-card{flex:0 0 320px;position:relative;display:flex;flex-direction:column;gap:18px;padding:22px;border-radius:20px;text-decoration:none;color:var(--bright);background:linear-gradient(145deg,rgba(255,79,163,.22),rgba(255,79,163,.04) 55%,var(--panel));border:1px solid rgba(255,79,163,.5);box-shadow:0 0 0 1px rgba(255,79,163,.08),0 12px 40px -12px rgba(255,79,163,.45);overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s}
+.tutorial-card::before{content:"";position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,79,163,.45),transparent 70%);pointer-events:none}
+.tutorial-card:hover{transform:translateY(-4px) rotate(-.4deg);border-color:var(--pink);box-shadow:0 0 0 1px rgba(255,79,163,.3),0 18px 50px -10px rgba(255,79,163,.65)}
+.tutorial-tag{align-self:flex-start;font-size:10px;font-weight:700;letter-spacing:.12em;color:#000;background:var(--pink);padding:4px 10px;border-radius:999px}
+.tutorial-main{display:flex;align-items:center;gap:16px;position:relative}
+.tutorial-play{flex:0 0 auto;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:var(--pink);color:#000;padding-left:3px;animation:tutorial-pulse 2s infinite;transition:transform .2s}
+.tutorial-card:hover .tutorial-play{transform:scale(1.1)}
+.tutorial-text strong{display:block;font-family:var(--display);font-size:18px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.tutorial-text small{display:block;margin-top:5px;font-size:12px;line-height:1.45;color:var(--dim)}
+.tutorial-foot{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:var(--pink-soft);padding-top:14px;border-top:1px dashed rgba(255,79,163,.35)}
+.tutorial-arrow{transition:transform .2s}
+.tutorial-card:hover .tutorial-arrow{transform:translate(3px,-3px)}
+@keyframes tutorial-pulse{0%{box-shadow:0 0 0 0 rgba(255,79,163,.55)}70%{box-shadow:0 0 0 16px rgba(255,79,163,0)}100%{box-shadow:0 0 0 0 rgba(255,79,163,0)}}
+@media(max-width:900px){.hero-row{flex-direction:column;align-items:stretch}.tutorial-card{flex:1 1 auto}}
