@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-title SLR Protocol
+title LitReview Studio
 
 rem ---- 1. Cek Python & Git ------------------------------------------------
 set "PY="
