@@ -74,5 +74,24 @@ user_auth.write_env_value = boom
 r = c.post("/signup", data={"username": "ani"})
 check(r.status_code == 200 and "USER_API_KEY=slr_" in r.get_data(as_text=True), "fallback tampilkan key")
 
+# .env.example menjadi nilai bawaan di mode terkelola; .env pengguna tetap menang
+d = Path(tempfile.mkdtemp())
+(d / ".env.example").write_text(
+    "SUPABASE_URL=https://example.supabase.co\nSUPABASE_ANON_KEY=k\nVAR_BARU=dari-example\nVAR_PUNYA_USER=dari-example\nVAR_KOSONG=\n",
+    encoding="utf-8",
+)
+for k in ("VAR_BARU", "VAR_KOSONG", "VAR_PUNYA_USER"):
+    os.environ.pop(k, None)
+os.environ["VAR_PUNYA_USER"] = "dari-env-user"
+user_auth.prepare_env(d)
+check(os.environ.get("VAR_BARU") == "dari-example", "variabel baru di .env.example terbaca")
+check(os.environ.get("VAR_PUNYA_USER") == "dari-env-user", ".env pengguna mengalahkan .env.example")
+check("VAR_KOSONG" not in os.environ, "nilai kosong tidak dipaksakan")
+os.environ["USER_AUTH"] = "off"
+os.environ.pop("VAR_BARU", None)
+user_auth.prepare_env(d)
+check("VAR_BARU" not in os.environ, "USER_AUTH=off: .env.example diabaikan")
+os.environ.pop("USER_AUTH", None)
+
 print(f"{ok} lolos, {fail} gagal")
 sys.exit(1 if fail else 0)

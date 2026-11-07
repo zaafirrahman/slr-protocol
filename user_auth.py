@@ -40,12 +40,20 @@ def enabled():
 
 
 def prepare_env(base_dir):
-    """Panggil SEBELUM konstanta provider dibaca: isi URL Supabase dari .env.example dan arahkan AI ke proxy."""
-    for name, value in dotenv_values(Path(base_dir) / ".env.example").items():
-        if name in SHARED_KEYS and value and not os.getenv(name):
-            os.environ[name] = value.strip()
+    """Panggil SEBELUM konstanta provider dibaca.
+
+    Mode terkelola: semua nilai di .env.example menjadi nilai bawaan (ikut git pull), dan .env pengguna
+    hanya perlu berisi USER_API_KEY. Baris yang ditulis pengguna sendiri di .env tetap menang.
+    """
+    example = dotenv_values(Path(base_dir) / ".env.example")
+    for name in SHARED_KEYS:  # cukup untuk menentukan apakah mode terkelola aktif
+        if example.get(name) and not os.getenv(name):
+            os.environ[name] = example[name].strip()
     if not enabled():
-        return
+        return  # mode lama / USER_AUTH=off: .env.example diabaikan, perilaku seperti sebelumnya
+    for name, value in example.items():
+        if value and name not in os.environ:
+            os.environ[name] = value.strip()
     os.environ["LLM_PROVIDER"] = "deepseek"
     os.environ.setdefault("HOST", "127.0.0.1")  # hanya bisa dibuka dari laptop ini, bukan dari jaringan Wi-Fi
     if not _cfg("DEEPSEEK_URL"):
