@@ -1353,6 +1353,13 @@ NORM_CHUNK = _env_int("NORM_CHUNK", 150)  # nama teknik per panggilan AI
 NORM_MAX_TECHNIQUES = 600
 
 
+def _method_group(article):
+    """Id kelompok metode (quantitative | qualitative | mixed) dari label methodological_choice artikel; None bila tidak ada."""
+    d = article.get("research_design") if isinstance(article, dict) else None
+    value = ((d or {}).get("methodological_choice") or {}).get("value") if isinstance(d, dict) else None
+    return next((g[0] for g in METHOD_GROUPS if value in g[2]), None)
+
+
 def collect_techniques(articles):
     """Kumpulkan teknik unik dari artikel ber-research_design. Nama yang hanya berbeda huruf besar/kecil atau tanda
     baca digabung secara deterministik (tanpa AI). Return [{key, name, raw[], count, article_ids[]}] urut jumlah artikel."""
@@ -1365,15 +1372,18 @@ def collect_techniques(articles):
             key = _tech_key(t)
             if not key:
                 continue
-            slot = buckets.setdefault(key, {"names": {}, "article_ids": []})
+            slot = buckets.setdefault(key, {"names": {}, "article_ids": [], "methods": {}})
             slot["names"][str(t)] = slot["names"].get(str(t), 0) + 1
             if a["id"] not in slot["article_ids"]:
                 slot["article_ids"].append(a["id"])
+                group = _method_group(a)
+                if group:
+                    slot["methods"][group] = slot["methods"].get(group, 0) + 1
     out = []
     for key, slot in buckets.items():
         name = sorted(slot["names"].items(), key=lambda kv: (-kv[1], len(kv[0]), kv[0]))[0][0]
         out.append({"key": key, "name": name, "raw": list(slot["names"]),
-                    "count": len(slot["article_ids"]), "article_ids": slot["article_ids"]})
+                    "count": len(slot["article_ids"]), "article_ids": slot["article_ids"], "methods": slot["methods"]})
     out.sort(key=lambda t: (-t["count"], t["name"].lower()))
     return out
 
@@ -1564,7 +1574,12 @@ def normalization_prompt(techniques, running, topic, rq):
             "\nKELUARGA YANG SUDAH ADA (jangan diubah; gunakan id-nya). Tetapkan teknik ke keluarga ini bila cocok; "
             "buat keluarga baru (id baru, mis. berikutnya setelah id terbesar) hanya bila tidak ada yang cocok:\n" + lines + "\n"
         )
-    listing = "\n".join(f'- "{t["name"]}" | {t["count"]} artikel' for t in techniques)
+    method_label = {"quantitative": "kuantitatif", "qualitative": "kualitatif", "mixed": "campuran"}
+
+    def method_spread(t):
+        parts = [f"{method_label[g]} {n}" for g, n in (t.get("methods") or {}).items() if g in method_label]
+        return " | " + ", ".join(parts) if parts else ""
+    listing = "\n".join(f'- "{t["name"]}" | {t["count"]} artikel{method_spread(t)}' for t in techniques)
     kept = [i for i in (running or {}).get("items", []) if i.get("family") != NORM_DROP and i.get("canonical")]
     attach_task, attach_schema = "", ""
     if kept:
@@ -1585,13 +1600,13 @@ def normalization_prompt(techniques, running, topic, rq):
     return f"""Anda menormalisasi daftar nama teknik/metode yang diekstrak dari artikel ilmiah untuk taksonomi desain penelitian.
 Gunakan hanya daftar di bawah; jangan menambah teknik yang tidak ada. Topik review: {topic or '(belum ditentukan)'}. Research question: {rq or '(belum dirumuskan)'}.
 {existing_block}
-DAFTAR TEKNIK (nama | jumlah artikel):
+DAFTAR TEKNIK (nama | jumlah artikel | sebaran label metode artikel yang memakainya):
 {listing}
 
 TUGAS
 1. merges: gabungkan nama yang artinya SAMA PERSIS (singkatan vs nama lengkap, variasi penulisan, kata tambahan seperti "classifier", "framework", "approach"). JANGAN menggabungkan metode yang berbeda walau satu keluarga (mis. LSTM dan BiLSTM tetap terpisah). Varian yang menambah komponen metodologis bermakna (mis. quantile, conformal, robust, stochastic, weighted, distributionally robust) tetap terpisah dari metode dasarnya. Tiap nama hanya boleh muncul di satu merge. Semua varian harus persis salah satu nama pada daftar; canonical adalah nama yang paling umum dan jelas.
 {attach_task}{"3" if attach_task else "2"}. drops: nama yang BUKAN teknik/metode: nama topik atau kerangka keseluruhan (mis. predict-then-optimize), nama dataset, metrik angka (mis. RMSE, MAE, MAPE), komponen atau parameter model (fungsi, loss, konstanta), perangkat lunak/solver/library (mis. Gurobi, CPLEX, PuLP, scikit-learn), objek domain. Nama arsitektur atau model prediksi/optimasi (mis. TCN, DCRNN, Transformer, XGBoost, LSTM) ADALAH teknik: jangan di-drop hanya karena namanya spesifik. Uji statistik dan prosedur validasi (mis. Friedman test, Wilcoxon signed-rank test, K-fold cross-validation) ADALAH teknik, bukan metrik. Alat matematis yang dipakai artikel sebagai bagian prosedur metodenya, seperti kondisi optimalitas dan diferensiasi untuk pelatihan end-to-end (mis. KKT conditions, implicit function theorem, finite differences), ADALAH teknik. Beri alasan singkat. Jika ragu, jangan di-drop.
-{"4" if attach_task else "3"}. families: kelompokkan teknik yang tersisa ke 4-8 keluarga menurut SATU prinsip (tulis pada principle): jenis/peran teknik dalam metode penelitian. Nama keluarga ringkas (bahasa Indonesia, nama teknik tetap istilah aslinya); definisi satu kalimat yang membedakannya dari keluarga lain. Setiap teknik masuk tepat satu keluarga yang definisinya benar-benar cocok; jangan memaksa teknik ke keluarga yang salah (mis. K-means bukan teknik evaluasi), lebih baik tidak ditugaskan di assign. Hindari keluarga "Lainnya".
+{"4" if attach_task else "3"}. families: kelompokkan teknik yang tersisa ke 4-8 keluarga menurut SATU prinsip (tulis pada principle): jenis/peran teknik dalam metode penelitian. Nama keluarga ringkas (bahasa Indonesia, nama teknik tetap istilah aslinya); definisi satu kalimat yang membedakannya dari keluarga lain. Setiap teknik masuk tepat satu keluarga yang definisinya benar-benar cocok; jangan memaksa teknik ke keluarga yang salah (mis. K-means bukan teknik evaluasi), lebih baik tidak ditugaskan di assign. Hindari keluarga "Lainnya". Sebaran label metode pada daftar berasal dari label artikel (kuantitatif/kualitatif/campuran), bukan dari AI. Satu keluarga tidak boleh mencampur teknik yang hanya dipakai artikel kuantitatif dengan teknik yang hanya dipakai artikel kualitatif; bila satu prinsip pengelompokan menghasilkan keluarga seperti itu, pecah menjadi dua keluarga dengan nama yang jelas berbeda. Teknik yang dipakai artikel kedua jenis boleh tetap satu keluarga, dan label campuran bukan bukti teknik itu kuantitatif atau kualitatif.
 {"5" if attach_task else "4"}. assign: peta dari nama teknik ke id keluarga. Kuncinya adalah canonical (untuk yang digabung) atau nama itu sendiri (untuk yang tidak digabung). Setiap teknik yang tidak di-drop dan bukan sekadar varian harus ada di assign.
 
 Keluarkan JSON valid saja dengan struktur:

@@ -27,7 +27,8 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
   (hierarchical, poly-hierarchical, faceted, flat, matrix), jaringan co-occurrence, dan system map (unduh SVG).
 - **Desain riset (research onion):** tiap artikel diberi label metodologi, strategi, sumber data, dan time horizon
   (berikut basis dinyatakan/disimpulkan dan kutipan yang diverifikasi ke PDF), disusun menjadi taksonomi desain riset
-  dan matriks metodologi × strategi. Nama dan keluarga teknik dinormalisasi lewat usulan AI yang kamu setujui.
+  dan matriks metodologi × strategi. Nama dan keluarga teknik dinormalisasi lewat usulan AI yang kamu setujui; editor
+  pemetaannya punya tab per metode (Kuantitatif, Kualitatif, Campuran) untuk memeriksa teknik menurut jenis artikelnya.
   Hasilnya bisa diekspor sebagai **laporan HTML** mandiri (bisa dicetak ke PDF).
 - **Arah Riset (khusus TMI ITB):** untuk yang belum punya topik. Pilih kelompok keilmuan, jenis masalah, sektor, dan metode dari
   kategori yang diturunkan dari tesis TMI terdahulu; hasilnya topik umum, research question, query ScienceDirect/Scopus, dan
@@ -179,8 +180,41 @@ Detail arsitektur, keamanan, dan batasannya ada di [`CLAUDE.md`](CLAUDE.md) bagi
 4. Buka **Review Synthesis** dan jalankan sintesis **sekali di akhir** (setiap sintesis memproses ulang semua
    artikel INCLUDE dan menambah biaya).
 5. Periksa PRISMA, taxonomy, co-occurrence, dan system map.
-6. **Ekspor proyek** secara berkala. Mengubah keputusan artikel menghapus hasil sintesis lama, jadi sintesis
+6. (Opsional) Buka **Taksonomi Desain Riset** dan rapikan nama serta keluarga teknik; langkahnya ada di
+   [Normalisasi teknik](#normalisasi-teknik-taksonomi-desain-riset) di bawah.
+7. **Ekspor proyek** secara berkala. Mengubah keputusan artikel menghapus hasil sintesis lama, jadi sintesis
    perlu dijalankan ulang.
+
+### Normalisasi teknik (Taksonomi Desain Riset)
+
+Dipakai untuk menyatukan nama teknik yang bervariasi dan mengelompokkannya ke keluarga. AI hanya mengusulkan; pohon baru
+berubah setelah kamu menyetujui.
+
+1. Di tab **Taksonomi Desain Riset**, klik **Usulkan pengelompokan (AI)**. Bila pemetaan sudah ada dan muncul teknik baru,
+   pakai **Perbarui untuk teknik baru**: keluarga lama dipertahankan dan hanya teknik yang belum terpetakan yang diusulkan.
+   Untuk mengubah pemetaan yang sudah disetujui, klik **Edit pemetaan**.
+2. Periksa draf di editor: ubah nama atau definisi keluarga, pindahkan teknik lewat dropdown keluarga di tiap barisnya,
+   gabungkan varian nama, atau hapus bagian "Dibuang". Bagian **Dibuang** memuat nama yang dianggap AI bukan teknik
+   (mis. solver, instrumen lab); yang dibuang tidak muncul di pohon, jadi periksa daftarnya.
+3. Pakai **tab** di atas editor untuk memeriksa menurut jenis artikel: **Semua**, **Kuantitatif**, **Kualitatif**, **Campuran**.
+   Tab hanya menyaring tampilan. Satu keluarga tetap satu keluarga, dan mengubah nama atau definisinya berlaku di semua tab.
+   Satu teknik tampil di tab sesuai label metodologi artikel yang memakainya, sama seperti cabang pada pohon, jadi keluarga
+   yang dipakai artikel dari beberapa jenis akan muncul di beberapa tab dengan teknik masing-masing.
+4. Tiap keluarga menampilkan sebaran artikelnya ("Kuantitatif 2 · Kualitatif 1"), dan tiap teknik menampilkan label metode
+   artikelnya. Tanda **⚠** muncul bila satu keluarga memuat teknik yang hanya dipakai artikel kuantitatif sekaligus teknik
+   lain yang hanya dipakai artikel kualitatif. Itu petunjuk untuk dicek, bukan tanda salah: bila isinya memang satu keluarga
+   yang wajar (mis. perkakas lean/Six Sigma), abaikan. Bila ada yang jelas keliru, pindahkan tekniknya atau pecah keluarga.
+5. Memecah keluarga: **Tambah keluarga** (isi nama, pilih tab petunjuk), lalu pindahkan tekniknya satu per satu lewat dropdown
+   keluarga. Tab petunjuk hanya menentukan di tab mana keluarga yang masih kosong tampil; setelah ada teknik, posisinya
+   mengikuti artikel. Tidak ada pindah massal.
+6. Klik **Setujui & terapkan ke pohon**. Pohon dan diagram langsung memakai pemetaan itu. **Hapus normalisasi** mengembalikan
+   pohon ke daftar teknik datar.
+
+Catatan:
+- Cabang pada pohon selalu mengikuti label **metodologi artikel**, bukan keluarga: satu artikel hanya di satu cabang
+  (Kuantitatif, Kualitatif, atau Campuran). Menaruh keluarga di tab tertentu tidak memindahkan artikelnya. Bila label
+  artikelnya keliru, itu berasal dari ekstraksi dan perlu dianalisis ulang.
+- Usulan AI bisa berbeda antar run, termasuk soal apa yang dibuang. Periksa draf sebelum menyetujui.
 
 ### Di mana datamu disimpan
 
@@ -225,6 +259,8 @@ Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `l
 - Screening satu reviewer dengan bantuan AI bukan pengganti penilaian kritis peneliti. Periksa semua keputusan,
   kutipan halaman, metodologi, dan temuan terhadap artikel aslinya.
 - AI dapat salah mengekstrak, menyimpulkan hubungan yang tidak didukung, atau melewatkan konteks.
+- Normalisasi teknik: pengelompokan dan daftar yang dibuang bisa berubah antar run, dan tanda ⚠ hanya membandingkan label
+  metode artikel, bukan sifat tekniknya. Keduanya membantu pemeriksaan, bukan penilaian akhir.
 - Dengan DeepSeek, teks artikel dikirim ke server pihak ketiga (di mode terkelola lewat proxy admin lebih dulu). Jangan
   unggah materi rahasia atau yang tidak boleh dibagikan.
 - Ini prototype untuk penggunaan riset. Akun di mode terkelola hanya untuk pencatatan token dan pemblokiran, bukan

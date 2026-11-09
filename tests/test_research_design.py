@@ -497,4 +497,16 @@ try:
 finally:
     app.llm_json = real2
 
+print("   sebaran metode per teknik (untuk prompt dan editor)")
+sp_arts = [mk_article("q1", ["Thematic analysis", "Regression"], "mono_qualitative"), mk_article("q2", ["Thematic analysis"], "multi_method_qualitative"),
+           mk_article("n1", ["Regression"], "mono_quantitative"), mk_article("m1", ["Regression", "Coding"], "mixed_method_simple"),
+           {"id": "x1", "research_design": {"techniques": ["Regression"]}}]
+sp = {t["name"]: t for t in app.collect_techniques(sp_arts)}
+check("sebaran metode dihitung per artikel unik menurut label artikel", sp["Regression"]["methods"] == {"qualitative": 1, "quantitative": 1, "mixed": 1} and sp["Thematic analysis"]["methods"] == {"qualitative": 2}, str(sp["Regression"]["methods"]))
+check("artikel tanpa label metode tetap dihitung di count tetapi tidak di sebaran", sp["Regression"]["count"] == 4)
+pr = app.normalization_prompt(list(sp.values()), None, "t", "q")
+check("prompt memuat sebaran metode per teknik", '- "Thematic analysis" | 2 artikel | kualitatif 2' in pr and "kuantitatif 1" in pr and "campuran 1" in pr)
+check("prompt memuat aturan: jangan campur teknik kuantitatif-saja dan kualitatif-saja dalam satu keluarga", "Satu keluarga tidak boleh mencampur teknik yang hanya dipakai artikel kuantitatif" in pr and "pecah menjadi dua keluarga" in pr)
+check("prompt tetap valid tanpa sebaran (teknik tanpa label metode)", '- "X" | 1 artikel\n' in app.normalization_prompt([{"name": "X", "count": 1}], None, "t", "q"))
+
 print(f"\nSEMUA LULUS: {len(PASSED)} pengecekan")

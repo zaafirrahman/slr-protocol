@@ -728,27 +728,62 @@
   const NORM_DROP = '__drop__';
   const cloneJson = (x) => JSON.parse(JSON.stringify(x));
   function normState() { state.norm = {draft: null, approved: null, ...(state.norm || {})}; return state.norm; }
+  // Tab metode di editor = FILTER tampilan. Satu keluarga tetap satu entitas; tab hanya menampilkan teknik yang dipakai artikel
+  // berlabel metode itu (label dari methodological_choice, sama dengan cabang pohon). `method` pada keluarga hanyalah petunjuk
+  // tab untuk keluarga yang belum punya teknik berartikel.
+  const NORM_METHODS = [
+    {id: 'quantitative', label: 'Kuantitatif', keys: ['mono_quantitative', 'multi_method_quantitative']},
+    {id: 'qualitative', label: 'Kualitatif', keys: ['mono_qualitative', 'multi_method_qualitative']},
+    {id: 'mixed', label: 'Campuran', keys: ['mixed_method_simple', 'mixed_method_complex']},
+  ];
+  const NORM_TAB_LABEL = {all: 'Semua', not_stated: 'Tidak dinyatakan', ...Object.fromEntries(NORM_METHODS.map(m => [m.id, m.label]))};
+  let normTab = 'all';
+  const validMethod = (m) => NORM_METHODS.some(x => x.id === m) ? m : null;
+  function methodGroupOf(a) { const v = (((a || {}).research_design || {}).methodological_choice || {}).value; const g = NORM_METHODS.find(m => m.keys.includes(v)); return g ? g.id : 'not_stated'; }
+  function normCountsFor(ids, gmap) { const c = {}; [...new Set(list(ids))].forEach(id => { const g = gmap[id]; if (g) c[g] = (c[g] || 0) + 1; }); return c; }
+  const normChip = (c) => Object.keys(NORM_TAB_LABEL).filter(k => k !== 'all' && c[k]).map(k => `${NORM_TAB_LABEL[k]} ${c[k]}`).join(' · ');
   function normOptions(draft, selected) {
     const fams = list(draft.families).map(f => `<option value="${esc(f.id)}"${selected === f.id ? ' selected' : ''}>${esc(f.name)}</option>`).join('');
     const none = selected == null || selected === '';
     return `${fams}<option value=""${none ? ' selected' : ''}>Belum dikelompokkan</option><option value="${NORM_DROP}"${selected === NORM_DROP ? ' selected' : ''}>Bukan teknik (buang)</option>`;
   }
-  function normItemRow(it, idx, draft) {
+  function normItemRow(it, idx, draft, gc) {
     const others = list(it.variants).filter(v => v !== it.canonical);
     const variants = others.length ? `<span class="norm-variants">Digabung dari: ${others.map(v => `<span class="norm-chip">${esc(v)} <button type="button" class="norm-split" data-split="${idx}" data-variant="${esc(v)}" title="Pisahkan varian ini menjadi teknik sendiri">×</button></span>`).join('')}</span>` : '';
-    return `<div class="norm-item"><span><input class="norm-name" data-item-name="${idx}" value="${esc(it.canonical)}" aria-label="Nama baku teknik">${it.new ? '<span class="norm-new">baru</span>' : ''}${list(it.touched).length ? '<span class="norm-new" title="Nama yang baru ditempelkan: ' + esc(list(it.touched).join(', ')) + '">+' + list(it.touched).length + ' varian baru</span>' : ''}</span><span class="dt-count" title="Jumlah artikel">${it.count ?? '–'}</span><select data-item-fam="${idx}" aria-label="Keluarga">${normOptions(draft, it.family)}</select>${it.reason ? `<span class="norm-reason">Alasan AI: ${esc(it.reason)}</span>` : ''}${variants}</div>`;
+    return `<div class="norm-item"><span><input class="norm-name" data-item-name="${idx}" value="${esc(it.canonical)}" aria-label="Nama baku teknik">${it.new ? '<span class="norm-new">baru</span>' : ''}${list(it.touched).length ? '<span class="norm-new" title="Nama yang baru ditempelkan: ' + esc(list(it.touched).join(', ')) + '">+' + list(it.touched).length + ' varian baru</span>' : ''}</span><span class="dt-count" title="${normTab === 'all' || !gc ? 'Jumlah artikel' : 'Jumlah artikel berlabel ' + esc(NORM_TAB_LABEL[normTab])}">${normTab !== 'all' && gc && gc[normTab] != null ? gc[normTab] : (it.count ?? '–')}</span><select data-item-fam="${idx}" aria-label="Keluarga">${normOptions(draft, it.family)}</select>${gc && normChip(gc) ? `<span class="norm-methods" title="Label metode artikel yang memakai teknik ini">${esc(normChip(gc))}</span>` : ''}${it.reason ? `<span class="norm-reason">Alasan AI: ${esc(it.reason)}</span>` : ''}${variants}</div>`;
   }
-  function normEditor(draft) {
-    const items = list(draft.items), groups = {};
-    items.forEach((it, i) => { const k = it.family === NORM_DROP ? NORM_DROP : (it.family || ''); (groups[k] = groups[k] || []).push([it, i]); });
-    const rows = (k) => (groups[k] || []).map(([it, i]) => normItemRow(it, i, draft)).join('');
-    const fams = list(draft.families).map(f => `<div class="norm-family"><div class="norm-fam-head"><input data-fam-name="${esc(f.id)}" value="${esc(f.name)}" aria-label="Nama keluarga"><input data-fam-def="${esc(f.id)}" value="${esc(f.definition || '')}" placeholder="Definisi satu kalimat" aria-label="Definisi keluarga"><button type="button" class="button button-secondary" data-norm-action="del-family" data-id="${esc(f.id)}">Hapus keluarga</button></div>${rows(f.id) || '<p class="dt-empty">Belum ada teknik di keluarga ini.</p>'}</div>`).join('');
+  function normEditor(draft, arts) {
+    const gmap = {}; list(arts).forEach(a => { if (a && a.id) gmap[a.id] = methodGroupOf(a); });
+    const items = list(draft.items), gcs = items.map(it => normCountsFor(it.article_ids, gmap));
+    const tab = normTab, unknown = (it) => !list(it.article_ids).length;
+    const visibleItem = (i) => tab === 'all' || unknown(items[i]) || gcs[i][tab] > 0;
+    const groups = {};
+    items.forEach((it, i) => { if (!visibleItem(i)) return; const k = it.family === NORM_DROP ? NORM_DROP : (it.family || ''); (groups[k] = groups[k] || []).push([it, i]); });
+    const rows = (k) => (groups[k] || []).map(([it, i]) => normItemRow(it, i, draft, gcs[i])).join('');
+    const famInfo = (f) => {
+      const mine = items.map((it, i) => [it, i]).filter(([it]) => it.family === f.id);
+      const counts = normCountsFor(mine.flatMap(([it]) => list(it.article_ids)), gmap);
+      const pure = (c, a, b) => c[a] > 0 && !c[b];
+      const hasQuan = mine.some(([, i]) => pure(gcs[i], 'quantitative', 'qualitative')), hasQual = mine.some(([, i]) => pure(gcs[i], 'qualitative', 'quantitative'));
+      return {counts, known: Object.keys(counts).length > 0, mixedWorlds: hasQuan && hasQual};
+    };
+    const infos = {}; list(draft.families).forEach(f => { infos[f.id] = famInfo(f); });
+    const showFam = (f) => tab === 'all' || infos[f.id].counts[tab] > 0 || (!infos[f.id].known && (!validMethod(f.method) || f.method === tab));
+    const tabCount = (t) => t === 'all' ? list(draft.families).length : list(draft.families).filter(f => infos[f.id].counts[t] > 0).length;
+    const tabs = ['all', ...NORM_METHODS.map(m => m.id), ...(Object.values(infos).some(i => i.counts.not_stated) ? ['not_stated'] : [])];
+    const tabBar = `<div class="norm-tabs" role="tablist">${tabs.map(t => `<button type="button" role="tab" class="norm-tab${t === tab ? ' active' : ''}" aria-selected="${t === tab}" data-norm-tab="${t}">${esc(NORM_TAB_LABEL[t])} <span class="dt-count">${tabCount(t)}</span></button>`).join('')}</div><p class="norm-tabnote">Tab hanya memfilter tampilan: satu keluarga tetap satu entitas, ubah nama atau definisi berlaku di semua tab. Teknik dihitung menurut label metode artikelnya, sama seperti cabang pohon.</p>`;
+    const famBox = f => { const inf = infos[f.id];
+      const meta = inf.known ? `<span class="norm-methods">Artikel: ${esc(normChip(inf.counts))}</span>` : `<span class="norm-methods">Belum ada teknik berartikel${validMethod(f.method) ? ' · tampil di tab ' + esc(NORM_TAB_LABEL[f.method]) : ''}</span>`;
+      const warn = inf.mixedWorlds ? `<span class="norm-warn" title="Ada teknik yang hanya dipakai artikel kuantitatif dan teknik lain yang hanya dipakai artikel kualitatif di keluarga ini">⚠ Mencampur teknik kuantitatif dan kualitatif: pertimbangkan memecah keluarga</span>` : '';
+      return `<div class="norm-family"><div class="norm-fam-head"><input data-fam-name="${esc(f.id)}" value="${esc(f.name)}" aria-label="Nama keluarga"><input data-fam-def="${esc(f.id)}" value="${esc(f.definition || '')}" placeholder="Definisi satu kalimat" aria-label="Definisi keluarga"><button type="button" class="button button-secondary" data-norm-action="del-family" data-id="${esc(f.id)}">Hapus keluarga</button></div><div class="norm-fam-meta">${meta}${warn}</div>${rows(f.id) || '<p class="dt-empty">Belum ada teknik di keluarga ini.</p>'}</div>`; };
+    const fams = list(draft.families).filter(showFam).map(famBox).join('') || `<p class="dt-empty">Tidak ada keluarga untuk tab ${esc(NORM_TAB_LABEL[tab])}.</p>`;
+    const nWarn = list(draft.families).filter(f => infos[f.id].mixedWorlds).length;
     const unassigned = groups[''] ? `<div class="norm-family"><div class="norm-fam-head"><strong>Belum dikelompokkan (${groups[''].length})</strong></div>${rows('')}</div>` : '';
     const dropped = groups[NORM_DROP] ? `<details class="norm-family norm-dropped" open><summary>Dibuang AI karena dianggap bukan teknik (${groups[NORM_DROP].length}): periksa, AI bisa keliru</summary>${rows(NORM_DROP)}</details>` : '';
     const nDrop = (groups[NORM_DROP] || []).length, nNone = (groups[''] || []).length;
     const actions = `<div class="norm-actions"><button type="button" class="button" data-norm-action="approve">Setujui &amp; terapkan ke pohon</button><button type="button" class="button button-secondary" data-norm-action="discard">Buang draf</button></div>`;
-    const check = `<p class="design-notice">Sebelum menyetujui, periksa: ${nDrop ? `<strong>${nDrop} teknik yang dibuang AI</strong> (bagian paling bawah, sudah dibuka), ` : ''}${nNone ? `${nNone} teknik yang belum dikelompokkan, ` : ''}penggabungan yang menyatukan metode berbeda (tombol ×), dan keluarga yang isinya tidak sesuai definisinya.</p>`;
-    return `<p class="norm-stat">${draft.principle ? `Prinsip pengelompokan: ${esc(String(draft.principle).replace(/[.\s]+$/, ''))}. ` : ''}${items.length} nama baku · ${list(draft.families).length} keluarga${draft.model ? ` · usulan ${esc(draft.model)}` : ''}. Periksa penggabungan (tombol × memisahkan varian), pindahkan teknik antar keluarga, ubah nama, lalu setujui.</p>${check}${actions}${fams}${unassigned}${dropped}<div class="norm-newfam"><input id="norm-new-family" placeholder="Nama keluarga baru" aria-label="Nama keluarga baru"><button type="button" class="button button-secondary" data-norm-action="add-family">Tambah keluarga</button></div>${actions}`;
+    const check = `<p class="design-notice">Sebelum menyetujui, periksa: ${nDrop ? `<strong>${nDrop} teknik yang dibuang AI</strong> (bagian paling bawah, sudah dibuka), ` : ''}${nNone ? `${nNone} teknik yang belum dikelompokkan, ` : ''}penggabungan yang menyatukan metode berbeda (tombol ×), dan keluarga yang isinya tidak sesuai definisinya.${nWarn ? ` <strong>${nWarn} keluarga mencampur teknik kuantitatif dan kualitatif</strong> (ditandai ⚠).` : ''}</p>`;
+    return `<p class="norm-stat">${draft.principle ? `Prinsip pengelompokan: ${esc(String(draft.principle).replace(/[.\s]+$/, ''))}. ` : ''}${items.length} nama baku · ${list(draft.families).length} keluarga${draft.model ? ` · usulan ${esc(draft.model)}` : ''}. Periksa penggabungan (tombol × memisahkan varian), pindahkan teknik antar keluarga, ubah nama, lalu setujui.</p>${check}${actions}${tabBar}${fams}${unassigned}${dropped}<div class="norm-newfam"><input id="norm-new-family" placeholder="Nama keluarga baru" aria-label="Nama keluarga baru"><select id="norm-new-method" aria-label="Tab tempat keluarga ini tampil sampai ada teknik berartikel" title="Petunjuk tab: keluarga kosong tampil di tab ini sampai ada teknik berartikel. Setelah itu posisinya mengikuti label metode artikel.">${NORM_METHODS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join('')}</select><button type="button" class="button button-secondary" data-norm-action="add-family">Tambah keluarga</button></div>${actions}`;
   }
   function renderNormalization(res, arts) {
     const box = $('#norm-panel'); if (!box) return;
@@ -759,13 +794,13 @@
     box.classList.remove('hidden');
     let body;
     if (n.draft) {
-      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK / DRAF — BELUM DIPAKAI PADA POHON</div><h2>Periksa dan setujui pengelompokan</h2>${normEditor(n.draft)}`;
+      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK / DRAF — BELUM DIPAKAI PADA POHON</div><h2>Periksa dan setujui pengelompokan</h2>${normEditor(n.draft, arts)}`;
     } else if (n.approved) {
       const items = list(n.approved.items), dropped = items.filter(i => i.family === NORM_DROP).length, merged = items.filter(i => list(i.variants).length > 1).length;
       const pending = status.applied && status.unmapped_count ? `<p class="design-notice">${esc(status.unmapped_count)} teknik baru belum ada di pemetaan dan tampil di “Belum dikelompokkan”: ${list(status.unmapped).slice(0, 8).map(esc).join(', ')}${status.unmapped_count > 8 ? ', …' : ''}.</p>` : '';
       body = `<div class="synth-eyebrow">NORMALISASI TEKNIK / DISETUJUI</div><h2>Pengelompokan teknik dipakai pada pohon</h2><p class="norm-stat">${list(n.approved.families).length} keluarga · ${items.length - dropped} nama baku · ${merged} hasil penggabungan · ${dropped} dibuang${n.approved.principle ? ` · prinsip: ${esc(n.approved.principle)}` : ''}.</p>${pending}<div class="norm-actions"><button type="button" class="button button-secondary" data-norm-action="edit">Edit pemetaan</button><button type="button" class="button${status.unmapped_count ? '' : ' button-secondary'}" data-norm-action="update">Perbarui untuk teknik baru${status.unmapped_count ? ` (${esc(status.unmapped_count)})` : ''}</button><button type="button" class="button button-secondary" data-norm-action="reset">Hapus normalisasi</button></div>`;
     } else {
-      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK</div><h2>Satukan nama dan kelompokkan teknik</h2><p class="norm-stat">Ada ${techCount} penyebutan teknik pada artikel di cakupan ini. AI mengusulkan: (1) menyatukan sinonim, (2) membuang istilah yang bukan teknik, (3) mengelompokkan ke keluarga sebagai kotak di bawah cabang Kuantitatif. Hasilnya berupa draf yang kamu periksa dan setujui; satu panggilan AI singkat (biasanya di bawah $0,01).</p><div class="norm-actions"><button type="button" class="button" data-norm-action="propose">Usulkan pengelompokan (AI)</button></div>`;
+      body = `<div class="synth-eyebrow">NORMALISASI TEKNIK</div><h2>Satukan nama dan kelompokkan teknik</h2><p class="norm-stat">Ada ${techCount} penyebutan teknik pada artikel di cakupan ini. AI mengusulkan: (1) menyatukan sinonim, (2) membuang istilah yang bukan teknik, (3) mengelompokkan ke keluarga sebagai kotak di bawah cabang Kuantitatif, Kualitatif, atau Campuran (mengikuti label metode artikelnya). Hasilnya berupa draf yang kamu periksa dan setujui; satu panggilan AI singkat (biasanya di bawah $0,01).</p><div class="norm-actions"><button type="button" class="button" data-norm-action="propose">Usulkan pengelompokan (AI)</button></div>`;
     }
     box.innerHTML = body;
   }
@@ -798,6 +833,8 @@
       }
       return;
     }
+    const tabBtn = e.target.closest('[data-norm-tab]');
+    if (tabBtn && n.draft) { normTab = tabBtn.dataset.normTab; renderNormalization(designResult.res, designResult.arts); return; }
     const btn = e.target.closest('[data-norm-action]'); if (!btn) return;
     const act = btn.dataset.normAction;
     if (act === 'propose') return normPropose(btn, false);
@@ -811,7 +848,10 @@
       if (!name) { toast('Isi nama keluarga terlebih dahulu.', 'error'); return; }
       if (n.draft.families.some(f => f.name.toLowerCase() === name.toLowerCase())) { toast('Nama keluarga itu sudah ada.', 'error'); return; }
       const next = Math.max(0, ...n.draft.families.map(f => Number(String(f.id).replace(/\D/g, '')) || 0)) + 1;
-      n.draft.families.push({id: `F${next}`, name, definition: ''});
+      const method = validMethod(($('#norm-new-method') || {}).value);
+      if (!method) { toast('Pilih tab metode (Kuantitatif, Kualitatif, atau Campuran) untuk keluarga ini.', 'error'); return; }
+      n.draft.families.push({id: `F${next}`, name, definition: '', method});
+      normTab = method;
     } else if (act === 'del-family' && n.draft) {
       const id = btn.dataset.id;
       n.draft.items.forEach(i => { if (i.family === id) i.family = null; });

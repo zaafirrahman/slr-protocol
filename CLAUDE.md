@@ -277,6 +277,19 @@ Prinsip: **AI hanya mengusulkan, pengguna menyetujui, kode menerapkan secara det
   tidak sama dengan nama baku dikeluarkan menjadi item sendiri. Daftar kata pengubah ini dipilih dari korpus Predict-then-Optimize;
   korpus bidang lain mungkin butuh tambahan.
 - Tanpa pemetaan, pohon tetap daftar datar seperti sebelumnya.
+- Editor draf bertab (9 Nov 2026): tab Semua / Kuantitatif / Kualitatif / Campuran (+ Tidak dinyatakan bila ada) adalah FILTER tampilan,
+  bukan induk keluarga. Satu keluarga tetap satu entitas (nama/definisi berlaku di semua tab); tab hanya menampilkan teknik yang dipakai
+  artikel berlabel metode itu (`methodological_choice`, kelompok sama dengan cabang pohon), dan keluarga yang daunnya berasal dari
+  beberapa jenis artikel muncul di beberapa tab dengan daunnya masing-masing. Pohon desain riset TIDAK berubah: cabang ditentukan
+  artikel, bukan keluarga (satu artikel hanya di satu cabang metodologi). Tiap keluarga menunjukkan sebaran artikelnya, tiap teknik
+  menunjukkan label metode artikelnya, dan keluarga yang punya teknik yang hanya dipakai artikel kuantitatif DAN teknik lain yang hanya
+  dipakai artikel kualitatif ditandai ⚠ (saran memecah; keputusan tetap di pengguna, label campuran diabaikan sebagai bukti).
+  Field `method` pada keluarga (quantitative|qualitative|mixed) HANYA petunjuk tab untuk keluarga yang belum punya teknik berartikel
+  (dipilih saat Tambah keluarga); setelah ada daun berartikel diabaikan dan tampilan mengikuti artikel. Backend tidak memvalidasi atau
+  memakai `method`. Prompt normalisasi memuat sebaran label metode per teknik (`collect_techniques` -> `methods`, dihitung kode, bukan AI)
+  dan aturan: satu keluarga tidak boleh mencampur teknik kuantitatif-saja dengan kualitatif-saja, pecah jadi dua keluarga bernama
+  berbeda. Itu saran ke AI, bukan jaminan: karena itu ada penanda ⚠ di editor. Efek aturan ini pada kualitas usulan belum diuji di
+  korpus nyata. Pemetaan lama tidak berubah sendiri ("Perbarui" mempertahankan keluarga lama); penanda ⚠ tetap bekerja untuknya.
 
 Audit pertama pada korpus nyata (17 artikel INCLUDE, 109 nama teknik): usulan AI umumnya baik (sebagian besar penggabungan benar,
 keluarga koheren), tetapi ada kesalahan material yang kini ditangani lewat prompt dan editor: (a) AI membuang 9 nama arsitektur
