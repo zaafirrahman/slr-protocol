@@ -1627,7 +1627,7 @@ ${refnote}
   // ===== Diagram taksonomi desain riset (halaman "Diagram Taksonomi") =====
   // Memvisualkan pohon dari /api/design-taxonomy sebagai diagram SVG (pohon horizontal atau radial).
   // SVG memakai warna literal (bukan variabel CSS) agar hasil unduhan SVG/PNG berdiri sendiri.
-  const DG = {layout: 'tree', collapsed: new Set(), selected: null, zoom: 1, fit: true, all: false, resetScroll: false, root: null, key: '', W: 0, H: 0, req: 0};
+  const DG = {layout: 'tree', collapsed: new Set(), selected: null, zoom: 1, fit: true, all: false, refs: false, resetScroll: false, root: null, key: '', W: 0, H: 0, req: 0};
   const DG_BRANCH = {
     dark: {root: '#ffffff', metodologi: '#9fd09f', strategi: '#86b4d8', teknik: '#e8906e', fondasi: '#dcb85c'},
     // Mode formal (pohon): semua hitam, tanpa pembeda warna.
@@ -1647,6 +1647,18 @@ ${refnote}
   const DG_KIND = {root: 'Topik (akar)', branch: 'Cabang', group: 'Kelompok', family: 'Keluarga teknik', value: 'Kategori', technique: 'Teknik', more: 'Ringkasan'};
   const DG_FONT = "'Inter', 'Segoe UI', Arial, sans-serif"; // lebar karakter rata-rata ~0,55 em: perkiraan 7,3 px/huruf di dgW dan sunburst masih aman
   const dgVK = n => DG.collapsed.has(n.id) ? [] : n.children;
+  // Nomor jurnal sebuah simpul, nomornya sama dengan tab Desain Riset (designRefs). Deret berurutan >= 3 diringkas: [1–3, 5, 8].
+  // Akar tidak diberi nomor (berisi semua artikel).
+  function dgRefs(n) {
+    if (n.kind === 'root') return '';
+    const nums = [...new Set(list(n.article_ids).map(id => designRefs[id]).filter(Boolean))].sort((a, b) => a - b), parts = [];
+    for (let i = 0; i < nums.length;) {
+      let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+      parts.push(j - i >= 2 ? `${nums[i]}–${nums[j]}` : nums.slice(i, j + 1).join(', ')); i = j + 1;
+    }
+    return parts.length ? `[${parts.join(', ')}]` : '';
+  }
+  const dgTip = n => `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${DG.refs && dgRefs(n) ? '\nNo. jurnal: ' + dgRefs(n) : ''}${n.definition ? '\n' + n.definition : ''}`;
   const dgTrunc = (s, m = 40) => { s = String(s || ''); return s.length > m ? s.slice(0, m - 1) + '…' : s; };
   // Teks panjang dibungkus (wrap) menjadi beberapa baris; nama lengkap tidak lagi dipotong.
   function dgWrap(s, max) {
@@ -1666,8 +1678,10 @@ ${refnote}
   function dgMeasure(n) {
     const cap = n.kind === 'root' ? 24 : n.kind === 'branch' ? 26 : 32;
     n._lines = dgWrap(n.name, cap);
-    n._h = Math.max(24, n._lines.length * 14.5 + 9);
-    const cw = n.kind === 'root' ? 8.2 : n.kind === 'branch' ? 7.6 : 7.3, widest = Math.max(...n._lines.map(l => l.length));
+    const rs = DG.refs ? dgRefs(n) : '';
+    n._rl = rs ? dgWrap(rs, cap) : [];   // baris nomor jurnal (opsional), digambar di bawah nama
+    n._h = Math.max(24, (n._lines.length + n._rl.length) * 14.5 + 9);
+    const cw = n.kind === 'root' ? 8.2 : n.kind === 'branch' ? 7.6 : 7.3, widest = Math.max(...n._lines.concat(n._rl).map(l => l.length));
     n._w = Math.round(widest * cw + (n.kind === 'root' ? 32 : 30) + (n.count > 0 && n.kind !== 'root' ? 30 : 0));
   }
 
@@ -1692,19 +1706,19 @@ ${refnote}
   function dgFind(id) { let hit = null; if (DG.root) dgWalk(DG.root, n => { if (n.id === id) hit = n; }); return hit; }
 
   function dgNodeSvg(n, pal, bc, x, y, rot, x0, dir) {
-    const col = bc[n.branch] || bc.root, w = n._w, h = n._h || 24, L = n._lines || [n.name], sel = DG.selected === n.id;
+    const col = bc[n.branch] || bc.root, w = n._w, h = n._h || 24, L = n._lines || [n.name], RL = n._rl || [], A = L.concat(RL), sel = DG.selected === n.id;
     const isRoot = n.kind === 'root', isBranch = n.kind === 'branch', isMore = n.kind === 'more';
     const fill = isRoot ? col : pal.nodeFill;
     const stroke = sel ? pal.sel : isBranch ? col : isRoot ? col : pal.nodeStroke;
     const sw = sel ? 2.6 : isBranch ? 1.8 : 1;
     const tcol = isRoot ? pal.rootText : isBranch ? col : isMore ? pal.dim : pal.text;
     const weight = isRoot ? 800 : isBranch ? 700 : 500;
-    const tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
+    const tip = dgTip(n);
     let g = `<g class="dg-node" data-id="${esc(n.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot.toFixed(2)})" style="cursor:pointer"><title>${esc(tip)}</title>`;
     g += `<rect x="${x0}" y="${(-h / 2).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${isMore ? ' stroke-dasharray="4 3"' : ''}/>`;
     if (!isRoot && !isBranch && !isMore) g += `<rect x="${x0 + 7}" y="-3" width="6" height="6" fill="${col}"/>`;
     const tx0 = x0 + (isRoot || isBranch || isMore ? 12 : 19);
-    const tsp = L.map((t, i) => `<tspan x="${tx0}" y="${((i - (L.length - 1) / 2) * 14.5 + 4.2).toFixed(1)}">${esc(t)}</tspan>`).join('');
+    const tsp = A.map((t, i) => `<tspan x="${tx0}" y="${((i - (A.length - 1) / 2) * 14.5 + 4.2).toFixed(1)}"${i >= L.length ? ` fill="${pal.dim}" font-size="11" font-weight="400" font-style="normal"` : ''}>${esc(t)}</tspan>`).join('');
     g += `<text font-family="${DG_FONT}" font-size="${isRoot ? 13 : 12}" font-weight="${weight}"${isMore ? ' font-style="italic"' : ''} fill="${tcol}">${tsp}</text>`;
     if (n.count > 0 && !isRoot) {
       g += `<rect x="${x0 + w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${x0 + w - 16.5}" y="4" text-anchor="middle" font-family="${DG_FONT}" font-size="11" font-weight="700" fill="${col}">${n.count}</text>`;
@@ -1763,7 +1777,14 @@ ${refnote}
       let R0 = 82;
       dgVWalk(root, n => {
         if (n.kind === 'root') return;
-        n._sl = dgWrap(labelOf(n), Math.max(6, Math.floor((thick[n.depth] - 12) / CW)));
+        const wr = Math.max(6, Math.floor((thick[n.depth] - 12) / CW));
+        n._sl = dgWrap(labelOf(n), wr); n._nl = n._sl.length;
+        const rs = DG.refs ? dgRefs(n) : '';
+        if (rs) {   // nomor jurnal: maksimal 2 baris di bawah nama; selengkapnya ada di tooltip dan panel detail
+          let rl = dgWrap(rs, wr);
+          if (rl.length > 2) { rl = rl.slice(0, 2); rl[1] = rl[1].slice(0, Math.max(1, wr - 1)) + '…'; }
+          n._sl = n._sl.concat(rl);
+        }
         const need = (n._sl.length * LH + 8) / (2 * Math.PI * n._wt / root._wt) - offs[n.depth] - thick[n.depth] / 2;
         if (need > R0) R0 = need;
       });
@@ -1781,7 +1802,7 @@ ${refnote}
         return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r1} ${r1} 0 ${lg} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}A${r0} ${r0} 0 ${lg} 0 ${x3.toFixed(1)} ${y3.toFixed(1)}Z`;
       };
       dgVWalk(root, n => {
-        const col = bc[n.branch] || bc.root, tip = `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${n.definition ? '\n' + n.definition : ''}`;
+        const col = bc[n.branch] || bc.root, tip = dgTip(n);
         if (n.kind === 'root') {
           const rr = R0 - 2, fs = Math.max(12, Math.min(22, rr / 6.5)), lh = fs * 1.22;
           const lines = dgWrap(n.name, Math.max(11, Math.floor(rr * 1.5 / (fs * 0.62))));
@@ -1802,7 +1823,7 @@ ${refnote}
           let L = n._sl;
           if (L.length > maxLines) { L = L.slice(0, maxLines); const cap = Math.max(6, Math.floor((thick[n.depth] - 12) / CW)), last = L[maxLines - 1]; L[maxLines - 1] = (last.length >= cap ? last.slice(0, cap - 1) : last) + '…'; }  // hanya bila busur terlalu sempit; nama lengkap ada di tooltip dan panel detail
           const flip = Math.cos(am) < 0, [tx0, ty0] = P(rm, am), deg = am * 180 / Math.PI + (flip ? 180 : 0);
-          const ls = L.map((t, i) => `<tspan x="0" y="${((i - (L.length - 1) / 2) * LH + 4).toFixed(1)}">${esc(t)}</tspan>`).join('');
+          const ls = L.map((t, i) => `<tspan x="0" y="${((i - (L.length - 1) / 2) * LH + 4).toFixed(1)}"${i >= n._nl ? ' font-size="11" font-weight="400" fill-opacity="0.8"' : ''}>${esc(t)}</tspan>`).join('');
           g += `<text transform="translate(${tx0.toFixed(1)},${ty0.toFixed(1)}) rotate(${deg.toFixed(2)})" text-anchor="middle" font-family="${DG_FONT}" font-size="12" font-weight="${solid ? 700 : 500}" fill="${tcol}">${ls}</text>`;
         }
         nodes.push(g + '</g>');
@@ -1843,7 +1864,7 @@ ${refnote}
     const items = list(res.tree.children).map(b => `<div class="dg-lg"><i style="background:${dgSwatch(b.id)}"></i><span>${esc(b.name)}</span></div>`).join('');
     let total = 0, shown = 0; dgWalk(DG.root, () => { total++; }); const walk = n => { shown++; dgVK(n).forEach(walk); }; walk(DG.root);
     $('#dg-legend').innerHTML = `<div class="dg-d-kind">${dgTheme() === 'light' && DG.layout === 'tree' ? 'KETERANGAN' : 'LEGENDA'}</div>${dgTheme() === 'light' && DG.layout === 'tree' ? '' : `<div class="dg-lg-row">${items}</div>`}`
-      + `<ul class="dg-notes"><li>Angka pada simpul = jumlah artikel.</li><li><b>+</b> / <b>−</b> atau klik dua kali = buka / tutup cabang.</li><li>Satu artikel boleh masuk ke beberapa simpul.</li><li>Menampilkan ${shown} dari ${total} simpul.</li></ul>`;
+      + `<ul class="dg-notes"><li>Angka pada simpul = jumlah artikel.</li>${DG.refs ? '<li>Angka dalam [ ] = nomor jurnal (sama dengan tab Desain Riset); 3 nomor berurutan atau lebih ditulis sebagai rentang, mis. 1–3.</li>' : ''}<li><b>+</b> / <b>−</b> atau klik dua kali = buka / tutup cabang.</li><li>Satu artikel boleh masuk ke beberapa simpul.</li><li>Menampilkan ${shown} dari ${total} simpul.</li></ul>`;
   }
 
   async function renderDesignDiagram() {
@@ -1901,6 +1922,17 @@ ${refnote}
       let saved = false; try { saved = localStorage.getItem('slr-formal-mode') === '1'; } catch (_) { /* abaikan */ }
       apply(saved);
       fm.addEventListener('click', () => apply(!document.body.classList.contains('formal')));
+    }
+    const rf = $('#dg-refs');
+    if (rf) {
+      const applyRefs = on => { DG.refs = on; rf.setAttribute('aria-pressed', on ? 'true' : 'false'); };
+      let savedRefs = false; try { savedRefs = localStorage.getItem('slr-dg-refs') === '1'; } catch (_) { /* abaikan */ }
+      applyRefs(savedRefs);
+      rf.addEventListener('click', () => {
+        applyRefs(!DG.refs);
+        try { localStorage.setItem('slr-dg-refs', DG.refs ? '1' : '0'); } catch (_) { /* penyimpanan diblokir: abaikan */ }
+        if (DG.root) { dgLegend(DG.res); dgPaint(); }
+      });
     }
     const cv = $('#dg-canvas'); if (!cv) return;
     cv.addEventListener('click', e => {

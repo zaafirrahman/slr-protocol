@@ -366,6 +366,10 @@ Desain Riset: tanpa AI, tanpa biaya token). Kode di `app.js`, blok "Diagram taks
   Klik simpul = detail (definisi + artikel, nomor rujukan sama dengan tab Desain Riset); klik dua kali atau tombol +/- = buka/tutup.
   Simpul tanpa artikel (jumlah 0 dan tanpa turunan ber-artikel) TIDAK digambar; cabang kosong tetap tampak di tab Taksonomi Desain Riset.
   Cabang kedalaman >= 3 ciut secara bawaan; teknik per keluarga dibatasi 15, sisanya diringkas "+ N teknik lain".
+- **Nomor jurnal (opsional)**: tombol "№ Nomor jurnal" (`#dg-refs`, state `DG.refs`, tersimpan di localStorage `slr-dg-refs`) menampilkan nomor rujukan
+  (`designRefs`, sama dengan tab Desain Riset) di tiap simpul, sebagai baris abu-abu di bawah nama (pohon) atau di bawah label busur (sunburst,
+  maks 2 baris; selengkapnya di tooltip dan panel detail). Pemformat: `dgRefs(n)`; 3 nomor berurutan atau lebih diringkas jadi rentang (`1–3`).
+  Akar tidak diberi nomor. Berlaku juga untuk unduhan SVG/PNG. Ukuran simpul/busur dihitung ulang lewat `dgMeasure` dan `_sl`.
 - SVG memakai **warna literal** (`DG_BRANCH`, `DG_PAL`), bukan variabel CSS, supaya unduhan SVG/PNG berdiri sendiri. Dua tema: `dark` (layar,
   palet terminal workspace) dan `light` (unduhan, kotak "Latar terang"). Selaraskan manual bila tema workspace berubah.
 - Font diagram monospace dan lebar simpul DIPERKIRAKAN dari jumlah karakter (`dgW`, konstanta 7.3 px/karakter untuk 12 px); ganti font
