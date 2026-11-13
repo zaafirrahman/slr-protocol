@@ -158,6 +158,23 @@ Per PDF (berurutan, satu request panjang):
 Respons: `{articles, errors, model, usage}`. File yang gagal masuk `errors` dan **tidak menghentikan** batch.
 Status HTTP: 400 (tanpa file / terlalu banyak), 503 (AI belum dikonfigurasi), 413 (total unggahan terlalu besar).
 
+### 4.2a Peta topik, co-occurrence, system map (SLR lanjutan)
+
+- **Taksonomi** dibuat `run_taxonomy` (satu panggilan AI, dipakai `/api/synthesize` dan `POST /api/taxonomy`). `llm_json(..., salvage=True)`
+  menyelamatkan JSON yang terpotong lewat `repair_truncated_json` (tutup string/array/objek, atau potong ke koma/penutup valid terakhir)
+  tanpa panggilan ulang; hasilnya `taxonomy_status = "partial"` + `taxonomy_note`. Status lain: `ok`, `fallback`, `failed`.
+  Tombol "Buat ulang peta topik" (`#taxonomy-retry`, `retryTaxonomy`) memanggil `/api/taxonomy` supaya kegagalan taksonomi tidak
+  memaksa seluruh sintesis diulang. Tes: `tests/test_json_repair.py`.
+- **Co-occurrence** tidak lagi bergantung pada sintesis: istilah dari `topic_tags` + nama `concepts`, digabung oleh `ccCanon` (huruf besar/kecil,
+  tanda hubung, ejaan optimise/optimize, akhiran framework/approach, jamak, singkatan dalam kurung). Istilah yang muncul di >=60% artikel
+  disembunyikan secara default (checkbox `#cooccurrence-dominant`) karena membentuk jaringan bintang. Warna = klaster (`netCommunities`).
+- **System map** dibangun kode dari `relationships` (+ opsional `concepts.parent_concepts`) tiap artikel; entitas digabung `ccCanon`.
+  Peran simpul bersifat struktural (asal / perantara / tujuan hubungan), bukan klaim AI. Klik simpul/panah menampilkan kutipan bukti.
+- **Mesin jaringan**: `netLayout` (force-directed deterministik + tumbukan kotak; tiap komponen terhubung ditata sendiri lalu disusun berbaris),
+  `netView` (SVG, hover/klik/seret, unduhan memakai warna literal), `scopeRefs`/`fmtRefs` (nomor jurnal sama dengan tab Desain Riset).
+  `system_map` sudah dihapus dari prompt sintesis akhir (UI memakainya tidak lagi). Anggaran token sintesis akhir dinaikkan 1700 -> 2600 karena JSON-nya
+  terpotong dan bagian ekor (`limitations_of_corpus`, `review_notes`) hilang saat "diperbaiki".
+
 ### 4.2 Sintesis (`POST /api/synthesize`)
 
 Body JSON: `articles` (seluruh array state), `research_question`, `inclusion`, `exclusion`, `job_id`.
@@ -418,8 +435,7 @@ tetap menambah keduanya, supaya hitungan PRISMA konsisten.
 ### 5.3 Hasil sintesis (`state.synthesis`)
 
 `research_question_refinement`, `subquestions[]`, `executive_synthesis`, `main_themes[]`, `agreements[]`,
-`contradictions[]`, `research_gaps[]`, `limitations_of_corpus[]`, `review_notes[]`, `system_map{nodes[{id,label,type,
-article_ids}],edges[{source,target,label,direction,article_ids}]}`, dan `taxonomy{hierarchical, faceted, flat,
+`contradictions[]`, `research_gaps[]`, `limitations_of_corpus[]`, `review_notes[]`, dan `taxonomy{hierarchical, faceted, flat,
 polyhierarchy, matrix}`. Metadata tambahan dari server: `taxonomy_status`, `taxonomy_note|taxonomy_error`,
 `included_article_count`, `generated_at`, `model`, `evidence_catalog`. Semua `article_ids` merujuk `record.id`.
 
@@ -491,7 +507,7 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
 | Token & tarif | `renderUsage`, popup (`renderUsagePopover`, `periodBlockHtml`, `donateBlockHtml`), `refreshHealthInfo` tiap 60 dtk |
-| Visualisasi | `renderTaxonomy` (hierarchical/poly-hierarchical sebagai SVG node-panah, faceted, flat, matrix), `renderCooccurrence` (dari `topic_tags`+`concepts`, filter minimum kemunculan), `renderSystemMap` |
+| Visualisasi | `renderTaxonomy` (hierarchical = `topicTreeSvg`, poly = `polyDiagram`, faceted, flat, matrix), `renderCooccurrence` (`ccBuild`: `topic_tags`+`concepts`, istilah dinormalisasi `ccCanon`), `renderSystemMap` (`smBuild`: dari `relationships` per artikel, **bukan** dari `synthesis.system_map`). Ketiganya memakai mesin jaringan bersama `netLayout`/`netView` (lihat 4.2a) |
 | Backup | `exportProject`, `importProject` (`Ctrl/Cmd+Shift+O`), `downloadSvg`, cetak PRISMA |
 
 Hal yang perlu diingat:

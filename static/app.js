@@ -499,44 +499,408 @@
   function svgText(text, x, y, size=12, weight=600, fill='#e8e8e8') {
     return `<text x="${x}" y="${y}" text-anchor="middle" font-size="${size}" font-weight="${weight}" fill="${fill}">${esc(String(text || '').slice(0,38))}</text>`;
   }
-  function renderHierarchySvg(root, nodes, edges, poly=false) {
-    if (!nodes.length && !root) return '<div class="empty-state">Belum ada struktur taxonomy yang cukup untuk divisualisasikan.</div>';
-    const all = root ? [root, ...nodes] : nodes;
-    const ids = all.map((n,i)=>String(n.id || `node-${i}`));
-    const index = Object.fromEntries(ids.map((id,i)=>[id,i]));
-    const links = (edges || []).map(e=>({a:index[String(e.from || e.source || e.parent_id)], b:index[String(e.to || e.target || e.id)]})).filter(e=>Number.isInteger(e.a)&&Number.isInteger(e.b)&&e.a!==e.b);
-    if (!links.length && !poly) nodes.forEach((n,i)=>{const pid=String(n.parent_id || (root && root.id) || ''); if (index[pid]!==undefined) links.push({a:index[pid],b:index[String(n.id || `node-${i+1}`)]});});
-    const w=900, pos=[]; let h=Math.max(250, Math.ceil(all.length/4)*125+70), bw=170;
-    if (poly) {
-      all.forEach((n,i)=>{const angle=(2*Math.PI*i/all.length)-Math.PI/2;pos.push({x:w/2+Math.cos(angle)*Math.min(310,all.length*28),y:h/2+Math.sin(angle)*Math.min(115,all.length*15)});});
-    } else {
-      const depth={}; depth[0]=0;
-      let changed=true; for(let pass=0;pass<all.length&&changed;pass++){changed=false;links.forEach(e=>{if(depth[e.a]!==undefined&&depth[e.b]===undefined){depth[e.b]=depth[e.a]+1;changed=true;}});}
-      const dv=all.map((_,j)=>depth[j]||0); const perLevel=dv.reduce((m,d)=>(m[d]=(m[d]||0)+1,m),{});
-      h=Math.max(250,(Math.max(...dv)+1)*105+30); bw=Math.max(84,Math.min(170,Math.floor(w/Math.max(...Object.values(perLevel)))-10));
-      all.forEach((n,i)=>{const d=depth[i]||0;const same=all.map((_,j)=>j).filter(j=>(depth[j]||0)===d);const rank=same.indexOf(i);pos.push({x:(rank+1)*w/(same.length+1),y:45+d*105});});
+  // ===== Jaringan SLR lanjutan: peta topik, co-occurrence, system map =====
+  // Satu mesin tata letak berbasis gaya (force-directed, deterministik) dan satu penggambar SVG dipakai bersama
+  // oleh Co-occurrence, System Map, dan diagram Poly-hierarchy. Warna literal (bukan variabel CSS) agar unduhan SVG berdiri sendiri.
+  const NET_PAL = ['#9fd09f', '#dcb85c', '#86b4d8', '#e8906e', '#c9a0dc', '#7fd1c7', '#d98ba0', '#e8e8e8'];
+  const NET_FONT = "Inter,'Segoe UI',Arial,sans-serif";
+  // Nomor rujukan artikel, sama dengan tab Desain Riset (urutan artikel pada cakupan desain).
+  function scopeRefs() { const m = {}; designScopeArticles().forEach((a, i) => { m[a.id] = i + 1; }); return m; }
+  // [1–3, 5]: tiga nomor berurutan atau lebih diringkas menjadi rentang.
+  function fmtRefs(ids, map) {
+    const nums = [...new Set(list(ids).map(id => map[id]).filter(Boolean))].sort((a, b) => a - b), parts = [];
+    for (let i = 0; i < nums.length;) {
+      let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+      parts.push(j - i >= 2 ? `${nums[i]}–${nums[j]}` : nums.slice(i, j + 1).join(', ')); i = j + 1;
     }
-    let svg=`<svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Diagram taxonomy"><defs><marker id="tax-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#9a9a9a"/></marker></defs>`;
-    links.forEach(e=>{const a=pos[e.a],b=pos[e.b];svg+=`<path d="M${a.x} ${a.y+20} L${b.x} ${b.y-20}" stroke="#9a9a9a" stroke-width="1.5" fill="none" marker-end="url(#tax-arrow)"/>`;});
-    all.forEach((n,i)=>{const q=pos[i],name=n.name||n.label||n.id||'Konsep';svg+=`<g><rect x="${q.x-bw/2}" y="${q.y-22}" width="${bw}" height="44" fill="${i===0?'#ffffff':'#101010'}" stroke="${i===0?'#ffffff':'#9a9a9a'}"/><text x="${q.x}" y="${q.y+4}" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700" fill="${i===0?'#000000':'#e8e8e8'}">${esc(String(name).slice(0,Math.floor(bw/6.4)))}</text></g>`;});
-    return svg+'</svg>';
+    return parts.length ? `[${parts.join(', ')}]` : '';
+  }
+  const netLines = (s, max, maxLines = 3) => {
+    const L = dgWrap(s, max);
+    if (L.length > maxLines) { const k = L.slice(0, maxLines); k[maxLines - 1] = k[maxLines - 1].slice(0, Math.max(1, max - 1)) + '…'; return k; }
+    return L;
+  };
+
+  // Tata letak gaya: tolakan antarsimpul, pegas sepanjang hubungan, gravitasi ke pusat, dan tumbukan kotak
+  // (supaya label tidak saling menimpa). nodes: {id, bw, bh, [ty]}; edges: {a, b, w}. Mengisi x dan y pada simpul.
+  function netLayoutOne(nodes, edges, o = {}) {
+    const n = nodes.length; if (!n) return;
+    const W = o.w || 900, H = o.h || 600, iters = o.iter || 380, gap = o.gap == null ? 10 : o.gap;
+    const idx = new Map(nodes.map((d, i) => [d.id, i]));
+    const links = edges.map(e => ({a: idx.get(e.a), b: idx.get(e.b), w: e.w || 1})).filter(l => l.a !== undefined && l.b !== undefined && l.a !== l.b);
+    const deg = nodes.map(() => 0); links.forEach(l => { deg[l.a]++; deg[l.b]++; });
+    const order = nodes.map((_, i) => i).sort((i, j) => deg[j] - deg[i] || i - j);
+    order.forEach((i, rank) => {   // spiral bunga matahari: simpul berderajat tinggi di tengah (hasil selalu sama untuk data yang sama)
+      const ang = rank * 2.399963, r = (o.spread || 46) * Math.sqrt(rank + 0.5);
+      Object.assign(nodes[i], {x: W / 2 + Math.cos(ang) * r, y: H / 2 + Math.sin(ang) * r, vx: 0, vy: 0});
+    });
+    const ld = o.linkDist || 130, charge = o.charge || 1400;
+    for (let t = 0; t < iters; t++) {
+      const alpha = Math.pow(1 - t / iters, 1.4) * 0.9 + 0.03;
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        const A = nodes[i], B = nodes[j]; let dx = A.x - B.x, dy = A.y - B.y, d2 = dx * dx + dy * dy;
+        if (d2 < 1e-4) { dx = (i - j) * 0.01 + 0.01; dy = 0.01; d2 = dx * dx + dy * dy; }
+        const d = Math.sqrt(d2), f = charge / Math.max(d2, 400) * alpha;
+        A.vx += dx / d * f; A.vy += dy / d * f; B.vx -= dx / d * f; B.vy -= dy / d * f;
+      }
+      links.forEach(l => {
+        const A = nodes[l.a], B = nodes[l.b], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1;
+        const target = ld + (A.bw + B.bw) / 4, f = (d - target) * 0.03 * Math.min(2.5, 0.6 + l.w * 0.4) * alpha;
+        A.vx += dx / d * f; A.vy += dy / d * f; B.vx -= dx / d * f; B.vy -= dy / d * f;
+      });
+      nodes.forEach(d => {
+        d.vx += (W / 2 - d.x) * 0.012 * alpha; d.vy += (H / 2 - d.y) * 0.012 * alpha;
+        if (d.ty !== undefined) d.vy += (d.ty - d.y) * 0.16 * alpha;
+      });
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {   // tumbukan kotak: dorong sepanjang sumbu tumpang tindih terkecil
+        const A = nodes[i], B = nodes[j], dx = B.x - A.x, dy = B.y - A.y;
+        const ox = (A.bw + B.bw) / 2 + gap - Math.abs(dx), oy = (A.bh + B.bh) / 2 + gap - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          if (ox < oy) { const s = (dx >= 0 ? 1 : -1) * ox * 0.28; A.vx -= s; B.vx += s; }
+          else { const s = (dy >= 0 ? 1 : -1) * oy * 0.28; A.vy -= s; B.vy += s; }
+        }
+      }
+      nodes.forEach(d => { d.vx *= 0.6; d.vy *= 0.6; d.x += Math.max(-40, Math.min(40, d.vx)); d.y += Math.max(-40, Math.min(40, d.vy)); });
+    }
+  }
+
+  // Kotak pembatas simpul (lingkaran: label menggantung di bawahnya, jadi batas bawah = r + tinggi label).
+  function netBBox(nodes) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    nodes.forEach(n => {
+      const top = n.kind === 'circle' ? n.r : n.bh / 2, bot = n.kind === 'circle' ? n.r + (n.lh || 0) : n.bh / 2;
+      x0 = Math.min(x0, n.x - n.bw / 2); x1 = Math.max(x1, n.x + n.bw / 2); y0 = Math.min(y0, n.y - top); y1 = Math.max(y1, n.y + bot);
+    });
+    return {x0, y0, x1, y1, w: x1 - x0, h: y1 - y0};
+  }
+  // Tiap komponen terhubung ditata sendiri, lalu disusun berbaris (shelf packing): garis tidak melintasi komponen lain
+  // dan gravitasi tidak menumpuk semuanya di satu titik.
+  function netLayout(nodes, edges, o = {}) {
+    if (!nodes.length) return;
+    const byId = new Map(nodes.map(d => [d.id, d])), adj = new Map(nodes.map(d => [d.id, []]));
+    edges.forEach(e => { if (byId.has(e.a) && byId.has(e.b) && e.a !== e.b) { adj.get(e.a).push(e.b); adj.get(e.b).push(e.a); } });
+    const seen = new Set(), comps = [];
+    nodes.forEach(d => {
+      if (seen.has(d.id)) return;
+      const comp = [], st = [d.id]; seen.add(d.id);
+      while (st.length) { const k = st.pop(); comp.push(byId.get(k)); adj.get(k).forEach(m => { if (!seen.has(m)) { seen.add(m); st.push(m); } }); }
+      comps.push(comp);
+    });
+    if (comps.length === 1) { netLayoutOne(nodes, edges, o); return; }
+    const boxes = comps.map(c => {
+      const ids = new Set(c.map(d => d.id));
+      netLayoutOne(c, edges.filter(e => ids.has(e.a) && ids.has(e.b)), {...o, w: Math.min(o.w || 900, 160 + c.length * 70), h: Math.min(o.h || 600, 130 + c.length * 55)});
+      return {c, b: netBBox(c)};
+    }).sort((p, q) => q.b.w * q.b.h - p.b.w * p.b.h);
+    const GAP = o.packGap || 44, area = boxes.reduce((t, k) => t + (k.b.w + GAP) * (k.b.h + GAP), 0);
+    const rowW = Math.max(boxes[0].b.w, Math.sqrt(area * (o.aspect || 1.5)));
+    let x = 0, y = 0, rowH = 0;
+    boxes.forEach(k => {
+      if (x > 0 && x + k.b.w > rowW) { x = 0; y += rowH + GAP; rowH = 0; }
+      k.c.forEach(d => { d.x += x - k.b.x0; d.y += y - k.b.y0; });
+      x += k.b.w + GAP; rowH = Math.max(rowH, k.b.h);
+    });
+  }
+
+  // Klaster = label propagation berbobot (deterministik). Return indeks klaster per simpul, klaster terbesar = 0.
+  function netCommunities(nodes, edges) {
+    const idx = new Map(nodes.map((d, i) => [d.id, i])), adj = nodes.map(() => new Map());
+    edges.forEach(e => {
+      const a = idx.get(e.a), b = idx.get(e.b); if (a === undefined || b === undefined || a === b) return;
+      adj[a].set(b, (adj[a].get(b) || 0) + (e.w || 1)); adj[b].set(a, (adj[b].get(a) || 0) + (e.w || 1));
+    });
+    const lab = nodes.map((_, i) => i);
+    for (let it = 0; it < 40; it++) {
+      let changed = false;
+      for (let i = 0; i < nodes.length; i++) {
+        if (!adj[i].size) continue;
+        const sc = new Map(); adj[i].forEach((w, j) => sc.set(lab[j], (sc.get(lab[j]) || 0) + w));
+        let best = lab[i], bw = sc.get(lab[i]) || 0;
+        sc.forEach((w, l) => { if (w > bw || (w === bw && l < best)) { best = l; bw = w; } });
+        if (best !== lab[i]) { lab[i] = best; changed = true; }
+      }
+      if (!changed) break;
+    }
+    const size = new Map(); lab.forEach(l => size.set(l, (size.get(l) || 0) + 1));
+    const rank = new Map([...size.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map((x, i) => [x[0], i]));
+    return lab.map(l => rank.get(l));
+  }
+
+  // Penggambar umum. cfg: {id, cls, label, directed, nodes, edges, layout, edgeWidth(e), edgeColor(e), onSelect(node|null), onEdge(edge|null)}
+  // nodes: {id, kind:'circle'|'box', r | w,h, color, label, lines, sub, tip, [lw, lh]}; edges: {a, b, w, label}
+  function netView(canvas, cfg) {
+    const nodes = cfg.nodes, edges = cfg.edges, directed = !!cfg.directed, byId = new Map(nodes.map(n => [n.id, n]));
+    nodes.forEach(n => { n.bw = n.kind === 'circle' ? Math.max(2 * n.r, n.lw || 0) : n.w; n.bh = n.kind === 'circle' ? 2 * n.r + (n.lh || 0) : n.h; });
+    netLayout(nodes, edges, cfg.layout || {});
+    const bb = netBBox(nodes), PAD = 34, W = Math.ceil(bb.w + PAD * 2), H = Math.ceil(bb.h + PAD * 2);
+    nodes.forEach(n => { n.x += PAD - bb.x0; n.y += PAD - bb.y0; });
+    const pk = (a, b) => a + '\u0001' + b, has = new Set(edges.map(e => pk(e.a, e.b)));
+    edges.forEach((e, i) => { e._i = i; e.bend = directed && has.has(pk(e.b, e.a)) ? 24 : 0; });
+    const endPoint = (n, tx, ty) => {
+      const dx = tx - n.x, dy = ty - n.y, d = Math.hypot(dx, dy) || 1;
+      if (n.kind === 'circle') return [n.x + dx / d * (n.r + 1.5), n.y + dy / d * (n.r + 1.5)];
+      const k = Math.min((n.w / 2 + 2) / (Math.abs(dx) || 1e-6), (n.h / 2 + 2) / (Math.abs(dy) || 1e-6), 1);
+      return [n.x + dx * k, n.y + dy * k];
+    };
+    const geom = e => {
+      const a = byId.get(e.a), b = byId.get(e.b), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+      const cx = mx - dy / d * e.bend, cy = my + dx / d * e.bend, p = endPoint(a, cx, cy), q = endPoint(b, cx, cy);
+      return {d: `M${p[0].toFixed(1)} ${p[1].toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${q[0].toFixed(1)} ${q[1].toFixed(1)}`, lx: 0.25 * p[0] + 0.5 * cx + 0.25 * q[0], ly: 0.25 * p[1] + 0.5 * cy + 0.25 * q[1]};
+    };
+    const uid = cfg.id || 'net', halo = 'stroke="#000000" stroke-width="3" paint-order="stroke" stroke-linejoin="round"';
+    const edgeSvg = edges.map(e => {
+      const g = geom(e), sw = cfg.edgeWidth ? cfg.edgeWidth(e) : 1.3, col = cfg.edgeColor ? cfg.edgeColor(e) : '#9a9a9a';
+      return `<g class="net-eg" data-i="${e._i}" style="cursor:${cfg.onEdge ? 'pointer' : 'default'}"><path class="net-hit" d="${g.d}" fill="none" stroke="#000000" stroke-opacity="0" stroke-width="12"/><path class="net-edge" d="${g.d}" fill="none" stroke="${col}" stroke-opacity="0.6" stroke-width="${sw}"${directed ? ` marker-end="url(#${uid}-arrow)"` : ''}/>`
+        + (e.label ? `<text class="net-elabel" x="${g.lx.toFixed(1)}" y="${(g.ly + 3).toFixed(1)}" text-anchor="middle" font-family="${NET_FONT}" font-size="10" fill="#e8e8e8" ${halo} style="opacity:0;pointer-events:none">${esc(e.label)}</text>` : '') + '</g>';
+    }).join('');
+    const nodeSvg = nodes.map(n => {
+      let body;
+      if (n.kind === 'circle') {
+        const L = n.lines || [n.label];
+        body = `<circle r="${n.r}" fill="${n.color}" fill-opacity="0.95" stroke="#000000" stroke-width="2"/><text text-anchor="middle" font-family="${NET_FONT}" font-size="${n.fs || 11}" font-weight="500" fill="#e8e8e8" ${halo}>${L.map((t, i) => `<tspan x="0" y="${(n.r + 13 + i * 12).toFixed(1)}">${esc(t)}</tspan>`).join('')}</text>`;
+      } else {
+        const L = n.lines || [n.label], top = -n.h / 2 + 16;
+        body = `<rect x="${-n.w / 2}" y="${-n.h / 2}" width="${n.w}" height="${n.h}" rx="6" fill="#101010" stroke="#3a3a3a" stroke-width="1.2"/><rect x="${-n.w / 2}" y="${-n.h / 2}" width="5" height="${n.h}" rx="2" fill="${n.color}"/>`
+          + `<text font-family="${NET_FONT}" font-size="11" font-weight="700" fill="#ffffff">${L.map((t, i) => `<tspan x="${-n.w / 2 + 14}" y="${(top + i * 13).toFixed(1)}">${esc(t)}</tspan>`).join('')}</text>`
+          + (n.sub ? `<text x="${-n.w / 2 + 14}" y="${(top + L.length * 13 + 1).toFixed(1)}" font-family="${NET_FONT}" font-size="9" fill="#9a9a9a">${esc(n.sub)}</text>` : '');
+      }
+      return `<g class="net-node" data-id="${esc(n.id)}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" style="cursor:grab;touch-action:none"><title>${esc(n.tip || n.label)}</title>${body}</g>`;
+    }).join('');
+    canvas.innerHTML = `<svg class="${cfg.cls || ''} net-svg" ${cfg.svgId ? `id="${cfg.svgId}" ` : ''}${W > 1000 ? `style="width:${W}px;max-width:none;min-width:0;max-height:none" ` : ''}xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(cfg.label || 'Jaringan')}"><defs><marker id="${uid}-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9a9a9a"/></marker></defs><rect width="100%" height="100%" fill="#000000"/><g>${edgeSvg}</g><g>${nodeSvg}</g></svg>`;
+    const svg = canvas.querySelector('svg'), nodeEls = new Map([...svg.querySelectorAll('.net-node')].map(g => [g.dataset.id, g]));
+    const edgeEls = [...svg.querySelectorAll('.net-eg')];
+    const nbr = new Map(nodes.map(n => [n.id, new Set([n.id])])); edges.forEach(e => { nbr.get(e.a).add(e.b); nbr.get(e.b).add(e.a); });
+    let sel = null, selEdge = null;
+    const paint = (fid, fe) => {
+      const on = fid != null || fe != null;
+      nodeEls.forEach((g, id) => { const hit = fid != null ? nbr.get(fid).has(id) : fe != null ? (id === edges[fe].a || id === edges[fe].b) : true; g.style.opacity = !on || hit ? 1 : 0.16; });
+      edgeEls.forEach(g => {
+        const i = +g.dataset.i, e = edges[i], hit = fid != null ? (e.a === fid || e.b === fid) : fe != null ? i === fe : false;
+        g.style.opacity = !on || hit ? 1 : 0.07; const lb = g.querySelector('.net-elabel'); if (lb) lb.style.opacity = hit ? 1 : 0;
+        const pth = g.querySelector('.net-edge'); if (pth) pth.setAttribute('stroke-opacity', hit ? 0.95 : 0.6);
+      });
+    };
+    const place = () => {
+      nodeEls.forEach((g, id) => { const n = byId.get(id); g.setAttribute('transform', `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`); });
+      edgeEls.forEach(g => { const e = edges[+g.dataset.i], q = geom(e); g.querySelectorAll('path').forEach(p => p.setAttribute('d', q.d)); const lb = g.querySelector('.net-elabel'); if (lb) { lb.setAttribute('x', q.lx.toFixed(1)); lb.setAttribute('y', (q.ly + 3).toFixed(1)); } });
+    };
+    const pt = svg.createSVGPoint(), toSvg = ev => { pt.x = ev.clientX; pt.y = ev.clientY; const m = svg.getScreenCTM(); return m ? pt.matrixTransform(m.inverse()) : {x: ev.clientX, y: ev.clientY}; };
+    const choose = id => { sel = id; selEdge = null; paint(sel, null); if (cfg.onSelect) cfg.onSelect(id == null ? null : byId.get(id)); };
+    let drag = null;
+    svg.addEventListener('pointerdown', ev => {
+      const g = ev.target.closest('.net-node'); if (!g) return;
+      const n = byId.get(g.dataset.id), p = toSvg(ev); drag = {n, g, ox: p.x - n.x, oy: p.y - n.y, sx: ev.clientX, sy: ev.clientY, moved: false};
+      try { g.setPointerCapture(ev.pointerId); } catch (_) { /* abaikan */ }
+      g.style.cursor = 'grabbing';
+    });
+    svg.addEventListener('pointermove', ev => {
+      if (!drag) return;
+      if (!drag.moved && Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) < 4) return;
+      drag.moved = true; const p = toSvg(ev);
+      drag.n.x = Math.max(drag.n.bw / 2, Math.min(W - drag.n.bw / 2, p.x - drag.ox)); drag.n.y = Math.max(10, Math.min(H - 10, p.y - drag.oy)); place();
+    });
+    const end = () => { if (!drag) return; const d = drag; drag = null; d.g.style.cursor = 'grab'; if (!d.moved) choose(sel === d.n.id ? null : d.n.id); };
+    svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', () => { drag = null; });
+    svg.addEventListener('pointerover', ev => { if (drag) return; const g = ev.target.closest('.net-node'); if (g) paint(g.dataset.id, null); else { const eg = ev.target.closest('.net-eg'); if (eg && cfg.onEdge) paint(null, +eg.dataset.i); } });
+    svg.addEventListener('pointerout', ev => { if (drag) return; if (ev.target.closest('.net-node') || ev.target.closest('.net-eg')) paint(sel, selEdge); });
+    svg.addEventListener('click', ev => {
+      const eg = ev.target.closest('.net-eg'); if (eg && cfg.onEdge && !ev.target.closest('.net-node')) { selEdge = +eg.dataset.i; sel = null; paint(null, selEdge); cfg.onEdge(edges[selEdge]); return; }
+      if (!ev.target.closest('.net-node') && (sel != null || selEdge != null)) { sel = null; selEdge = null; paint(null, null); if (cfg.onSelect) cfg.onSelect(null); }
+    });
+    const handle = {svg, clear: () => { sel = null; selEdge = null; paint(null, null); }};
+    canvas._net = handle;
+    return handle;
+  }
+
+  // ---- Normalisasi istilah (sinonim dan ejaan Inggris/Amerika digabung) ----
+  const CC_STOP = new Set(['dengan', 'dalam', 'untuk', 'pada', 'yang', 'dan', 'atau', 'the', 'and', 'for', 'with', 'from', 'this', 'that', 'study', 'research', 'analysis', 'based', 'using', 'based on', 'method', 'methods', 'model', 'models', 'approach', 'paper']);
+  function ccCanon(raw) {
+    let t = String(raw == null ? '' : raw).replace(/\s*\([^)]*\)/g, ' ').replace(/optimis/gi, m => m.slice(0, -1) + (m.slice(-1) === 's' ? 'z' : 'Z')).replace(/\bprograms?\b/gi, m => /^P/.test(m) ? 'Programming' : 'programming').replace(/\s+/g, ' ').trim();
+    t = t.replace(/\s+(framework|approach)$/i, '').trim();
+    const key = t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(w => w.length > 4 && w.endsWith('s') && !/(ss|us|is)$/.test(w) ? w.slice(0, -1) : w).join(' ');
+    return {key, display: t};
+  }
+  function ccDocs() {
+    const inc = list(state.articles).filter(a => a.screening_decision === 'include' && a.eligibility_decision === 'include');
+    return inc.length ? inc : list(state.articles).filter(a => ['success', 'ok'].includes(a.extraction_status));
+  }
+  function ccBuild(docs, hideDominant, min) {
+    const info = new Map(), per = [];
+    docs.forEach(a => {
+      const ext = a.extraction || a, seen = new Set();
+      let raw = [...list(ext.topic_tags), ...list(ext.concepts).map(c => (c && typeof c === 'object') ? c.name : c), ...list(ext.keywords)];
+      if (!raw.length) raw = [ext.title, ext.abstract].filter(Boolean).join(' ').match(/[A-Za-z][A-Za-z-]{3,}/g) || [];
+      raw.forEach(x => {
+        const c = ccCanon(x); if (c.key.length < 3 || CC_STOP.has(c.key)) return;
+        let o = info.get(c.key); if (!o) info.set(c.key, o = {key: c.key, names: new Map(), docs: new Set()});
+        o.names.set(c.display, (o.names.get(c.display) || 0) + 1); o.docs.add(a.id); seen.add(c.key);
+      });
+      per.push([...seen].slice(0, 20));
+    });
+    info.forEach(o => { o.label = [...o.names.entries()].sort((p, q) => q[1] - p[1] || p[0].length - q[0].length)[0][0]; o.n = o.docs.size; });
+    const hidden = hideDominant && docs.length >= 4 ? [...info.values()].filter(o => o.n / docs.length >= 0.6).sort((a, b) => b.n - a.n) : [];
+    const hid = new Set(hidden.map(o => o.key));
+    const keep = [...info.values()].filter(o => o.n >= min && !hid.has(o.key)).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label)).slice(0, 45);
+    const ks = new Set(keep.map(o => o.key)), pairs = new Map();
+    per.forEach(terms => { const t = terms.filter(k => ks.has(k)); for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const k = [t[i], t[j]].sort().join('\u0001'); pairs.set(k, (pairs.get(k) || 0) + 1); } });
+    const edges = [...pairs.entries()].map(([k, v]) => { const [a, b] = k.split('\u0001'); return {a, b, w: v}; }).sort((p, q) => q.w - p.w).slice(0, 140);
+    return {keep, edges, hidden, info};
   }
   function renderCooccurrence() {
-    const s=state.synthesis, canvas=$('#cooccurrence-canvas'), meta=$('#cooccurrence-meta');
-    if(!s){canvas.innerHTML='<div class="empty-state">Jalankan Review Synthesis untuk membangun jaringan istilah.</div>';meta.textContent='Belum ada data sintesis';return;}
-    const included=list(state.articles).filter(a=>a.screening_decision==='include'&&a.eligibility_decision==='include');
-    const docs=included.length?included:list(state.articles).filter(a=>a.extraction_status==='success');
-    const stop=new Set(['dengan','dalam','untuk','pada','yang','dan','atau','the','and','for','with','from','this','that','study','research','analysis','based','using','based on']);
-    const docTerms=[];
-    docs.forEach(a=>{const ext=a.extraction||a;let raw=[...list(ext.topic_tags),...list(ext.concepts),...list(ext.keywords)]; if(!raw.length) raw=[ext.title,ext.abstract].filter(Boolean).join(' ').match(/[A-Za-z][A-Za-z-]{3,}/g)||[];const terms=[...new Set(raw.map(x=>String(typeof x==='object'?(x.name||x.label||''):x).toLowerCase().trim()).filter(x=>x.length>2&&!stop.has(x)))].slice(0,18); if(terms.length)docTerms.push(terms);});
-    const freq={},pairs={};docTerms.forEach(terms=>{terms.forEach(t=>freq[t]=(freq[t]||0)+1);for(let i=0;i<terms.length;i++)for(let j=i+1;j<terms.length;j++){const k=[terms[i],terms[j]].sort().join('|||');pairs[k]=(pairs[k]||0)+1;}});
-    const min=Number($('#cooccurrence-min')?.value||2), top=Object.entries(freq).filter(([t,n])=>n>=min).sort((a,b)=>b[1]-a[1]).slice(0,35);const keep=new Set(top.map(x=>x[0]));const edges=Object.entries(pairs).map(([k,v])=>({terms:k.split('|||'),v})).filter(e=>e.v>=min&&e.terms.every(t=>keep.has(t))).sort((a,b)=>b.v-a.v).slice(0,75);
-    if(!top.length){canvas.innerHTML='<div class="empty-state">Belum ada kata kunci berulang. Coba ubah minimum kemunculan menjadi 1 atau jalankan ulang sintesis.</div>';meta.textContent=`${docs.length} artikel diperiksa`;return;}
-    const w=900,h=560,cx=w/2,cy=h/2,max=Math.max(...top.map(x=>x[1]));const pos={};top.forEach(([t,n],i)=>{const angle=(2*Math.PI*i/top.length)-Math.PI/2;const r=70+Math.min(170,top.length*5);pos[t]={x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r,n};});
-    let svg=`<svg class="cooccur-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Co-occurrence network"><rect width="100%" height="100%" fill="#000000"/>`;
-    edges.forEach(e=>{const a=pos[e.terms[0]],b=pos[e.terms[1]];if(a&&b)svg+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#9a9a9a" stroke-opacity=".5" stroke-width="${Math.min(5,1+e.v)}"/>`;});
-    top.forEach(([t,n],i)=>{const q=pos[t],r=9+14*n/max;svg+=`<g><circle cx="${q.x}" cy="${q.y}" r="${r}" fill="${i%3===0?'#ffffff':i%3===1?'#9fd09f':'#dcb85c'}" fill-opacity=".95" stroke="#000000" stroke-width="2"/><text x="${q.x}" y="${q.y+r+13}" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="${Math.min(11,9+n/max*2)}" font-weight="500" fill="#e8e8e8">${esc(t.slice(0,24))}</text></g>`;});
-    canvas.innerHTML=svg+'</svg>';meta.textContent=`${docs.length} artikel · ${top.length} istilah · ${edges.length} hubungan co-occurrence`;
+    const canvas = $('#cooccurrence-canvas'), meta = $('#cooccurrence-meta'), legend = $('#cooccurrence-legend'), detail = $('#cooccurrence-detail');
+    if (!canvas) return;
+    detail.classList.add('hidden'); legend.innerHTML = '';
+    const docs = ccDocs();
+    if (!docs.length) { canvas.innerHTML = '<div class="empty-state">Belum ada artikel hasil ekstraksi. Unggah dan ekstraksi PDF terlebih dahulu.</div>'; meta.textContent = 'Belum ada data'; return; }
+    const min = Number($('#cooccurrence-min')?.value || 2), hideDom = $('#cooccurrence-dominant') ? $('#cooccurrence-dominant').checked : true;
+    const B = ccBuild(docs, hideDom, min), refs = scopeRefs();
+    if (!B.keep.length) { canvas.innerHTML = '<div class="empty-state">Belum ada istilah yang berulang pada minimum ini. Turunkan minimum kemunculan menjadi 1.</div>'; meta.textContent = `${docs.length} artikel diperiksa`; return; }
+    const max = Math.max(...B.keep.map(o => o.n)), byKey = new Map(B.keep.map(o => [o.key, o]));
+    const nodes = B.keep.map(o => { const lines = netLines(o.label, 26, 2); return {id: o.key, kind: 'circle', r: +(6 + 13 * Math.sqrt(o.n / max)).toFixed(1), label: o.label, lines, lw: Math.max(...lines.map(l => l.length)) * 5.9, lh: lines.length * 12 + 6, fs: 11, o, tip: `${o.label} — ${o.n} artikel`}; });
+    const cl = netCommunities(nodes, B.edges), nById = new Map(nodes.map(n => [n.id, n]));
+    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = NET_PAL[cl[i] % NET_PAL.length]; });
+    const nb = new Map(nodes.map(n => [n.id, []])); B.edges.forEach(e => { nb.get(e.a).push([e.b, e.w]); nb.get(e.b).push([e.a, e.w]); });
+    netView(canvas, {
+      id: 'cc', cls: 'cooccur-svg', svgId: 'cooccurrence-svg', label: 'Jaringan co-occurrence istilah', nodes, edges: B.edges,
+      layout: {linkDist: 110, charge: 1800, spread: 40, w: 900, h: 620},
+      edgeWidth: e => Math.min(5, 0.8 + e.w * 0.9), edgeColor: e => { const A = nById.get(e.a), B = nById.get(e.b); return A.cl === B.cl ? A.color : '#9a9a9a'; },
+      onSelect: n => {
+        if (!n) { detail.classList.add('hidden'); return; }
+        const co = nb.get(n.id).sort((p, q) => q[1] - p[1]).slice(0, 8).map(([k, w]) => `${esc(byKey.get(k).label)} <span class="dim">(${w})</span>`).join(' · ');
+        const arts = [...n.o.docs].map(id => findArticle(id)).filter(Boolean).map(a => `<li><span class="dg-ref">[${esc(refs[a.id] || '?')}]</span> ${esc(a.title || '(tanpa judul)')} <span class="dim">(${esc(a.year || 'n.d.')})</span></li>`).join('');
+        detail.innerHTML = `<h3>${esc(n.label)}</h3><div class="dim">Muncul di ${n.o.n} dari ${docs.length} artikel · klaster ${n.cl + 1}</div>${co ? `<p><b>Sering bersama:</b> ${co}</p>` : '<p class="dim">Tidak berpasangan dengan istilah lain pada pengaturan ini.</p>'}<ul>${arts}</ul>`;
+        detail.classList.remove('hidden');
+      },
+    });
+    const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
+    legend.innerHTML = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span style="background:${NET_PAL[c % NET_PAL.length]}"></span>Klaster ${c + 1} · ${ns.length} istilah: ${esc(ns.slice(0, 3).map(n => n.label).join(', '))}${ns.length > 3 ? '…' : ''}</span>`).join('');
+    meta.innerHTML = `${docs.length} artikel · ${nodes.length} istilah · ${B.edges.length} hubungan · ${groups.size} klaster${B.hidden.length ? ` · disembunyikan karena muncul di ≥60% artikel: <b>${esc(B.hidden.map(o => o.label).join(', '))}</b>` : ''}`;
+  }
+
+  // ---- System map: dibangun kode dari hubungan (relationships) yang sudah diekstrak per artikel; tanpa AI tambahan ----
+  function smBuild(opts) {
+    const docs = ccDocs(), ents = new Map(), E = new Map();
+    const ent = raw => {
+      const c = ccCanon(raw); if (c.key.length < 2) return null;
+      let o = ents.get(c.key); if (!o) ents.set(c.key, o = {key: c.key, names: new Map(), arts: new Set(), out: 0, inn: 0, hier: 0});
+      o.names.set(c.display, (o.names.get(c.display) || 0) + 1); return o;
+    };
+    const link = (A, B, rel, ev, art, kind) => {
+      const k = A.key + '\u0001' + B.key + '\u0001' + kind; let e = E.get(k);
+      if (!e) E.set(k, e = {a: A.key, b: B.key, kind, rels: new Map(), ev: [], arts: new Set()});
+      if (rel) e.rels.set(rel, (e.rels.get(rel) || 0) + 1);
+      e.ev.push({id: art, rel, text: ev}); e.arts.add(art); A.arts.add(art); B.arts.add(art);
+    };
+    docs.forEach(a => {
+      const ext = a.extraction || a;
+      list(ext.relationships).forEach(r => {
+        if (!r || typeof r !== 'object') return;
+        const A = ent(r.source), B = ent(r.target); if (!A || !B || A === B) return;
+        link(A, B, String(r.relation || '').trim(), String(r.evidence || '').trim(), a.id, 'rel');
+      });
+      if (opts.hier) list(ext.concepts).forEach(c => {
+        if (!c || typeof c !== 'object' || !c.name) return;
+        list(c.parent_concepts).forEach(p => { const A = ent(p), B = ent(c.name); if (A && B && A !== B) link(A, B, 'konsep turunan', '', a.id, 'hier'); });
+      });
+    });
+    let edges = [...E.values()]; edges.forEach(e => { const A = ents.get(e.a), B = ents.get(e.b); if (e.kind === 'rel') { A.out++; B.inn++; } else { A.hier++; B.hier++; } });
+    let nodes = [...ents.values()].filter(o => o.out + o.inn + o.hier > 0);
+    nodes.forEach(o => { o.label = [...o.names.entries()].sort((p, q) => q[1] - p[1] || p[0].length - q[0].length)[0][0]; o.role = o.out + o.inn === 0 ? 'konsep' : o.inn === 0 ? 'asal' : o.out === 0 ? 'tujuan' : 'perantara'; o.score = (o.out + o.inn + o.hier) + o.arts.size * 0.5; });
+    if (opts.main && nodes.length) {   // hanya komponen terhubung terbesar
+      const adj = new Map(nodes.map(o => [o.key, []])); edges.forEach(e => { adj.get(e.a).push(e.b); adj.get(e.b).push(e.a); });
+      const seen = new Set(); let best = [];
+      nodes.forEach(o => { if (seen.has(o.key)) return; const comp = [], st = [o.key]; seen.add(o.key); while (st.length) { const k = st.pop(); comp.push(k); adj.get(k).forEach(m => { if (!seen.has(m)) { seen.add(m); st.push(m); } }); } if (comp.length > best.length) best = comp; });
+      const bs = new Set(best); nodes = nodes.filter(o => bs.has(o.key)); edges = edges.filter(e => bs.has(e.a) && bs.has(e.b));
+    }
+    const total = nodes.length;
+    if (opts.max && nodes.length > opts.max) { nodes = nodes.sort((p, q) => q.score - p.score || p.label.localeCompare(q.label)).slice(0, opts.max); const ks = new Set(nodes.map(o => o.key)); edges = edges.filter(e => ks.has(e.a) && ks.has(e.b)); }
+    const used = new Set(); edges.forEach(e => { used.add(e.a); used.add(e.b); }); nodes = nodes.filter(o => used.has(o.key));
+    return {docs, nodes, edges, total};
+  }
+  const SM_ROLE = {asal: {name: 'Asal hubungan', color: '#dcb85c', hint: 'hanya menunjuk ke konsep lain (mis. metode atau faktor yang diklaim memengaruhi)'}, perantara: {name: 'Perantara', color: '#ffffff', hint: 'menerima dan meneruskan hubungan'}, tujuan: {name: 'Tujuan hubungan', color: '#9fd09f', hint: 'hanya ditunjuk oleh konsep lain (mis. hasil atau target)'}, konsep: {name: 'Hanya hierarki konsep', color: '#86b4d8', hint: 'terhubung lewat induk-turunan konsep'}};
+  function renderSystemMap() {
+    const canvas = $('#system-map-canvas'), legend = $('#system-map-legend'), meta = $('#system-map-meta'), detail = $('#system-map-detail');
+    if (!canvas) return;
+    detail.classList.add('hidden'); legend.innerHTML = '';
+    const docs = ccDocs();
+    if (!docs.length) { canvas.innerHTML = '<div class="empty-state">Belum ada artikel hasil ekstraksi. Unggah dan ekstraksi PDF terlebih dahulu.</div>'; meta.textContent = 'Belum ada system map'; return; }
+    const M = smBuild({hier: $('#system-map-hier')?.checked, main: $('#system-map-main')?.checked, max: Number($('#system-map-max')?.value || 40)});
+    if (!M.nodes.length) { canvas.innerHTML = '<div class="empty-state">Belum ada hubungan antarkonsep pada artikel ini. Hubungan diambil dari hasil ekstraksi tiap artikel; ekstrak ulang artikel jika kosong.</div>'; meta.textContent = `${docs.length} artikel diperiksa`; return; }
+    const refs = scopeRefs(), byKey = new Map(M.nodes.map(o => [o.key, o]));
+    const nodes = M.nodes.map(o => {
+      const lines = netLines(o.label, 22, 3), w = Math.max(96, Math.min(176, Math.max(...lines.map(l => l.length)) * 6.3 + 30));
+      return {id: o.key, kind: 'box', w: Math.round(w), h: lines.length * 13 + 30, lines, color: SM_ROLE[o.role].color, label: o.label, sub: `${SM_ROLE[o.role].name.toUpperCase()} · ${o.arts.size} artikel`, tip: `${o.label}\n${SM_ROLE[o.role].name}: ${SM_ROLE[o.role].hint}\n${o.arts.size} artikel`, o};
+    });
+    const edges = M.edges.map(e => {
+      const top = [...e.rels.entries()].sort((p, q) => q[1] - p[1])[0];
+      return {a: e.a, b: e.b, w: e.arts.size, label: e.kind === 'hier' ? 'konsep turunan' : (top ? top[0].slice(0, 60) : 'berhubungan'), e};
+    });
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const evList = e => e.ev.map(v => { const a = findArticle(v.id); return `<li><span class="dg-ref">[${esc(refs[v.id] || '?')}]</span> ${esc(v.rel || 'hubungan')}${v.text ? `<blockquote>“${esc(v.text.slice(0, 220))}”</blockquote>` : ''}<span class="dim">${esc(a ? a.title : '')}</span></li>`; }).join('');
+    const showEdge = ed => { detail.innerHTML = `<h3>${esc(byKey.get(ed.e.a).label)} → ${esc(byKey.get(ed.e.b).label)}</h3><div class="dim">${ed.e.arts.size} artikel mendukung · kutipan di bawah adalah teks asli dari artikel</div><ul>${evList(ed.e)}</ul>`; detail.classList.remove('hidden'); };
+    netView(canvas, {
+      id: 'sm', cls: 'system-map-svg', svgId: 'system-map-svg', label: 'System map hubungan antarkonsep', directed: true, nodes, edges,
+      layout: {linkDist: 200, charge: 9000, spread: 90, w: 1100, h: 800, gap: 22, aspect: 1.9},
+      edgeWidth: e => Math.min(4, 1.2 + (e.w - 1) * 0.9), edgeColor: e => e.e.kind === 'hier' ? '#86b4d8' : '#9a9a9a', onEdge: showEdge,
+      onSelect: n => {
+        if (!n) { detail.classList.add('hidden'); return; }
+        const out = edges.filter(x => x.a === n.id), inn = edges.filter(x => x.b === n.id);
+        const row = (x, dir) => `<li>${dir === 'out' ? '→ ' : '← '}<b>${esc(byKey.get(dir === 'out' ? x.b : x.a).label)}</b> <span class="dim">· ${esc(x.label)} · ${esc(fmtRefs(x.e.ev.map(v => v.id), refs))}</span></li>`;
+        detail.innerHTML = `<h3>${esc(n.label)}</h3><div class="dim">${esc(SM_ROLE[n.o.role].name)}: ${esc(SM_ROLE[n.o.role].hint)} · ${n.o.arts.size} artikel ${esc(fmtRefs([...n.o.arts], refs))}</div>`
+          + (out.length ? `<p><b>Menunjuk ke</b></p><ul>${out.map(x => row(x, 'out')).join('')}</ul>` : '') + (inn.length ? `<p><b>Ditunjuk oleh</b></p><ul>${inn.map(x => row(x, 'in')).join('')}</ul>` : '')
+          + '<p class="dim">Klik panah untuk melihat kutipan bukti.</p>';
+        detail.classList.remove('hidden');
+      },
+    });
+    const cnt = {}; M.nodes.forEach(o => { cnt[o.role] = (cnt[o.role] || 0) + 1; });
+    legend.innerHTML = Object.keys(SM_ROLE).filter(k => cnt[k]).map(k => `<span class="map-legend-chip" title="${esc(SM_ROLE[k].hint)}"><span style="background:${SM_ROLE[k].color}"></span>${esc(SM_ROLE[k].name)} (${cnt[k]})</span>`).join('');
+    meta.textContent = `${M.nodes.length}${M.total > M.nodes.length ? ` dari ${M.total}` : ''} konsep · ${M.edges.length} hubungan · ${M.docs.length} artikel`;
+  }
+
+  // ---- Peta topik: pohon hierarki (kolom per kedalaman, label dibungkus, jumlah artikel dan nomor rujukan) ----
+  function topicTreeSvg(root, nodes) {
+    const refs = scopeRefs(), kids = {}; nodes.forEach(n => { (kids[n.parent_id || root.id] = kids[n.parent_id || root.id] || []).push(n); });
+    const build = (n, depth, branch) => {
+      const ch = (kids[n.id] || []).map((k, i) => build(k, depth + 1, depth === 0 ? i : branch));
+      const ids = list(n.article_ids).length ? list(n.article_ids) : [...new Set(ch.flatMap(c => c.ids))];
+      return {id: n.id, name: String(n.name || n.label || n.id || 'Konsep'), desc: n.description || '', depth, branch, ids, ch};
+    };
+    const tree = build(root, 0, 0);
+    const walk = (n, f) => { f(n); n.ch.forEach(c => walk(c, f)); };
+    walk(tree, n => {
+      n.lines = dgWrap(n.name, 28); const rs = n.depth ? fmtRefs(n.ids, refs) : ''; n.rl = rs ? dgWrap(rs, 28) : [];
+      n.h = Math.max(28, (n.lines.length + n.rl.length) * 14.5 + 11);
+      n.w = Math.round(Math.max(...n.lines.concat(n.rl).map(l => l.length)) * 7.1 + 34 + (n.depth && n.ids.length ? 28 : 0));
+    });
+    const cols = []; walk(tree, n => { cols[n.depth] = Math.max(cols[n.depth] || 0, n.w); });
+    const xs = []; cols.forEach((w, i) => { xs[i] = i ? xs[i - 1] + cols[i - 1] + 56 : 0; });
+    const need = n => { n.need = Math.max(n.h + 10, n.ch.reduce((t, c) => t + need(c), 0)); return n.need; }; need(tree);
+    (function pos(n, top) { n.x = xs[n.depth]; if (!n.ch.length) { n.y = top + n.need / 2; return; } const sum = n.ch.reduce((t, c) => t + c.need, 0); let cur = top + (n.need - sum) / 2; n.ch.forEach(c => { pos(c, cur); cur += c.need; }); n.y = (n.ch[0].y + n.ch[n.ch.length - 1].y) / 2; })(tree, 0);
+    const PAD = 24, W = xs[xs.length - 1] + cols[cols.length - 1] + PAD * 2, H = tree.need + PAD * 2, colOf = n => n.depth === 0 ? '#ffffff' : NET_PAL[n.branch % NET_PAL.length];
+    let links = '', boxes = '';
+    walk(tree, n => {
+      n.ch.forEach(c => { const sx = n.x + n.w, xm = (sx + c.x) / 2; links += `<path d="M${sx} ${n.y.toFixed(1)}C${xm} ${n.y.toFixed(1)} ${xm} ${c.y.toFixed(1)} ${c.x} ${c.y.toFixed(1)}" fill="none" stroke="${colOf(c)}" stroke-opacity="0.55" stroke-width="1.4"/>`; });
+      const col = colOf(n), root0 = n.depth === 0, L = n.lines.concat(n.rl), top = -(L.length - 1) / 2 * 14.5 + 4.2;
+      boxes += `<g transform="translate(${n.x},${n.y.toFixed(1)})"><title>${esc(n.name + (n.desc ? '\n' + n.desc : ''))}</title><rect x="0" y="${-n.h / 2}" width="${n.w}" height="${n.h}" rx="6" fill="${root0 ? col : '#101010'}" stroke="${n.depth === 1 ? col : root0 ? col : '#3a3a3a'}" stroke-width="${n.depth === 1 ? 1.8 : 1}"/>`
+        + (n.depth > 1 ? `<rect x="7" y="-3" width="6" height="6" fill="${col}"/>` : '')
+        + `<text font-family="${NET_FONT}" font-size="12" font-weight="${root0 ? 800 : n.depth === 1 ? 700 : 500}" fill="${root0 ? '#000000' : n.depth === 1 ? col : '#e8e8e8'}">${L.map((t, i) => `<tspan x="${n.depth > 1 ? 19 : 12}" y="${(top + i * 14.5).toFixed(1)}"${i >= n.lines.length ? ` fill="#9a9a9a" font-size="11" font-weight="400"` : ''}>${esc(t)}</tspan>`).join('')}</text>`
+        + (n.depth && n.ids.length ? `<rect x="${n.w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${n.w - 16.5}" y="4" text-anchor="middle" font-family="${NET_FONT}" font-size="11" font-weight="700" fill="${col}">${n.ids.length}</text>` : '') + '</g>';
+    });
+    return `<div class="system-map-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
+  }
+  // ---- Poly-hierarchy: graf berlapis (induk di atas), satu konsep boleh punya beberapa induk ----
+  function polyDiagram(canvas, nodes, edges) {
+    const ids = new Set(nodes.map(n => String(n.id))), seen = new Set(), es = [];
+    const add = (p, c, label) => { if (!ids.has(p) || !ids.has(c) || p === c || seen.has(p + '>' + c)) return; seen.add(p + '>' + c); es.push({a: p, b: c, w: 1, label: label || 'subkategori dari'}); };
+    list(edges).forEach(e => add(String(e.from || e.source), String(e.to || e.target), e.relation));
+    nodes.forEach(n => list(n.parent_ids).forEach(p => add(String(p), String(n.id))));
+    const par = new Map(nodes.map(n => [String(n.id), []])); es.forEach(e => par.get(e.b).push(e.a));
+    const depth = new Map(), lvl = (id, trail) => { if (depth.has(id)) return depth.get(id); if (trail.has(id)) return 0; trail.add(id); const d = par.get(id).length ? 1 + Math.max(...par.get(id).map(p => lvl(p, trail))) : 0; trail.delete(id); depth.set(id, d); return d; };
+    const vn = nodes.map((n, i) => {
+      const id = String(n.id), lines = netLines(String(n.name || id), 22, 3), d = lvl(id, new Set());
+      return {id, kind: 'box', w: Math.round(Math.max(96, Math.min(176, Math.max(...lines.map(l => l.length)) * 6.3 + 30))), h: lines.length * 13 + 30, lines, color: NET_PAL[d % NET_PAL.length], label: String(n.name || id), sub: `${list(n.article_ids).length} artikel`, tip: `${n.name || id}${n.description ? '\n' + n.description : ''}`, ty: 70 + d * 140};
+    });
+    return netView(canvas, {id: 'poly', cls: 'taxonomy-svg', label: 'Diagram poly-hierarchy', directed: true, nodes: vn, edges: es, layout: {linkDist: 120, charge: 2600, spread: 70, w: 960, h: 520, gap: 16}});
   }
 
 
@@ -1235,7 +1599,7 @@ ${refnote}
     const s = state.synthesis;
     const box = $('#taxonomy-content');
     if (s && s.taxonomy_status === 'failed') {
-      box.innerHTML = `<div class="empty-state"><strong>Sintesis berhasil, tetapi taxonomy belum berhasil dibuat.</strong><p>${esc(s.taxonomy_error || 'Model tidak menghasilkan struktur taxonomy yang dapat dipakai.')}</p><p>Periksa apakah model AI (Ollama/DeepSeek) masih berjalan, lalu jalankan ulang sintesis untuk mencoba membuat taxonomy lagi.</p></div>`;
+      box.innerHTML = `<div class="empty-state"><strong>Sintesis berhasil, tetapi taxonomy belum berhasil dibuat.</strong><p>${esc(s.taxonomy_error || 'Model tidak menghasilkan struktur taxonomy yang dapat dipakai.')}</p><p>Sintesis tidak perlu diulang: klik tombol di bawah untuk membuat ulang peta topik saja (satu panggilan AI).</p><button type="button" class="button" id="taxonomy-retry">Buat ulang peta topik</button></div>`;
       return;
     }
     if (!s || !s.taxonomy) { box.innerHTML = '<div class="empty-state">Jalankan Review Synthesis untuk menghasilkan peta topik dari artikel yang termasuk.</div>'; return; }
@@ -1245,7 +1609,7 @@ ${refnote}
       const levels = list(h.levels), cov = s.taxonomy_coverage;
       const principle = levels.length ? `<p class="taxonomy-help"><strong>Prinsip pengelompokan:</strong> ${levels.map(l=>`level ${esc(l.level)}: ${esc(l.principle)}`).join(' · ')}</p>` : '';
       const covLine = cov ? `<p class="taxonomy-help">Cakupan: ${esc(cov.covered)}/${esc(cov.total)} artikel punya tempat di hierarki${list(cov.uncovered_ids).length ? ` · belum terpetakan: ${list(cov.uncovered_ids).map(id=>esc((findArticle(id)||{}).title||id)).join('; ')}` : ''}${cov.parent_fixes ? ` · ${esc(cov.parent_fixes)} relasi induk diperbaiki otomatis` : ''}.</p>` : '';
-      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? renderHierarchySvg(root,nodes,[]) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? topicTreeSvg(root,nodes) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
     } else if (activeTaxonomy === 'faceted') {
       const f=s.taxonomy.faceted||{}; const facets=list(f.facets);
       box.innerHTML = `<div class="synth-eyebrow">FACETED TAXONOMY</div><h2 class="taxonomy-title">Klasifikasi berdasarkan beberapa facet</h2><p class="taxonomy-help">Setiap kolom menunjukkan dimensi atribut yang berbeda untuk mendeskripsikan studi atau konsep.</p>${facets.length ? `<div class="facet-diagram">${facets.map((facet,i)=>`<div class="facet-column"><div class="facet-head">${esc(facet.name||'Facet '+(i+1))}</div>${list(facet.values).map(v=>`<div class="facet-value"><strong>${esc(v.name||'Kategori')}</strong><small>${esc(v.description||'')}</small><span>${list(v.article_ids).length} artikel</span></div>`).join('')}</div>`).join('')}</div>` : '<div class="empty-state">Belum ada facet yang dihasilkan. Jalankan ulang sintesis untuk membuat klasifikasi multi-dimensi.</div>'}`;
@@ -1256,13 +1620,38 @@ ${refnote}
       const data = s.taxonomy.polyhierarchy || {};
       const nodes = list(data.nodes);
       const nodeNames = Object.fromEntries(nodes.map(n => [n.id, n.name]));
-      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#9a9a9a;font-size:11px;margin:0 0 15px">Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.</p>${nodes.length ? `${renderHierarchySvg(null,nodes,list(data.edges),true)}<div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Belum ada node poly-hierarchy pada hasil sintesis.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#9a9a9a;font-size:11px;margin:0 0 15px">Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.</p>${nodes.length ? `<div id="poly-canvas" class="system-map-canvas"></div><div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Belum ada node poly-hierarchy pada hasil sintesis.</div>'}`;
+      if (nodes.length) polyDiagram($('#poly-canvas'), nodes, list(data.edges));
     } else {
       const m = s.taxonomy.matrix || {};
       const cols = list(m.columns);
       const rows = list(m.rows);
       box.innerHTML = `<div class="synth-eyebrow">MATRICES TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Klasifikasi silang antar dimensi</h2><p style="font-size:11px;color:#9a9a9a;margin:0 0 15px">Baris: ${esc(m.row_axis_name || 'Dimensi baris')} · Kolom: ${esc(m.column_axis_name || 'Dimensi kolom')}</p>${rows.length && cols.length ? `<div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>${esc(m.row_axis_name || 'Kategori')}</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name || 'Baris')}</td>${cols.map(col=>{const cell=list(row.cells).find(c=>c.column===col);return `<td>${esc(cell ? cell.summary || '—' : '—')}${cell && list(cell.article_ids).length ? `<span class="matrix-cell-evidence">${list(cell.article_ids).length} artikel</span><div class="source-chips">${citationChips(cell.article_ids)}</div>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">Belum ada matriks taxonomy pada hasil sintesis.</div>'}`;
     }
+    if (s.taxonomy_status === 'partial') box.insertAdjacentHTML('afterbegin', `<div class="notice notice-warm"><strong>Peta topik parsial</strong><span>${esc(s.taxonomy_note || 'Respons AI terpotong; hanya bagian yang utuh yang dipakai.')}</span><button type="button" class="button button-quiet button-small" id="taxonomy-retry">Buat ulang peta topik</button></div>`);
+  }
+
+  // Buat ulang taksonomi saja (tanpa mengulang 29 panggilan sintesis).
+  let taxonomyBusy = false;
+  async function retryTaxonomy() {
+    if (taxonomyBusy || isBusy) return;
+    const s = state.synthesis; if (!s) return;
+    if (!currentCounts().included) { toast('Belum ada artikel INCLUDE pada screening dan full-text eligibility.', 'error'); return; }
+    taxonomyBusy = true;
+    const btn = $('#taxonomy-retry'); if (btn) { btn.disabled = true; btn.textContent = 'Menyusun peta topik…'; }
+    try {
+      const data = await api('/api/taxonomy', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({articles: state.articles, main_themes: list(s.main_themes), ...getMetaFromForm()})});
+      addUsage(data.usage);
+      s.taxonomy = data.taxonomy; s.taxonomy_coverage = data.taxonomy_coverage; s.taxonomy_status = data.taxonomy_status;
+      if (data.taxonomy_note) s.taxonomy_note = data.taxonomy_note; else delete s.taxonomy_note;
+      delete s.taxonomy_error;
+      saveState(); renderTaxonomy();
+      toast((data.taxonomy_status === 'partial' ? 'Peta topik dibuat sebagian (respons AI terpotong).' : 'Peta topik berhasil dibuat.') + usageText(data.usage), data.taxonomy_status === 'partial' ? '' : 'success');
+    } catch (error) {
+      addUsage(error.usage);
+      s.taxonomy_status = 'failed'; s.taxonomy_error = error.message; saveState(); renderTaxonomy();
+      toast(error.message, 'error');
+    } finally { taxonomyBusy = false; }
   }
 
   function typeColor(type) {
@@ -1270,51 +1659,9 @@ ${refnote}
     return colours[type] || colours.concept;
   }
   // Mode formal: warna diagram non-taksonomi dipetakan ke abu-abu di atas putih (untuk unduhan SVG)
-  const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0'};
+  const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0','#c9a0dc':'#7d7d7d','#7fd1c7':'#999999','#d98ba0':'#a5a5a5'};
   const formalizeSvg = s => document.body.classList.contains('formal') ? s.replace(/#[0-9a-fA-F]{6}\b/g, h => FORMAL_MAP[h.toLowerCase()] || h) : s;
   function downloadSvg(selector, filename) { const svg=$(selector); if(!svg){toast('Diagram belum tersedia.','error');return;} const blob=new Blob([formalizeSvg(svg.outerHTML)],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url); }
-  function renderSystemMap() {
-    const s = state.synthesis;
-    const canvas = $('#system-map-canvas');
-    const legend = $('#system-map-legend');
-    if (!s || !s.system_map || !list(s.system_map.nodes).length) {
-      canvas.innerHTML = '<div class="empty-state">System map akan tampil setelah sintesis berhasil dilakukan.</div>';
-      $('#system-map-meta').textContent = 'Belum ada system map';
-      legend.innerHTML = '';
-      return;
-    }
-    const nodes = list(s.system_map.nodes).slice(0, 30);
-    const edges = list(s.system_map.edges).filter(e=>nodes.some(n=>n.id===e.source)&&nodes.some(n=>n.id===e.target)).slice(0, 60);
-    const positions = {};
-    const cols = nodes.length <= 4 ? 2 : 3;
-    const cellW = 240, cellH = 112, nodeW = 172, nodeH = 62;
-    const rows = Math.ceil(nodes.length / cols);
-    const width = cols * cellW + 35, height = Math.max(260, rows * cellH + 20);
-    nodes.forEach((node,i)=> {
-      const col = i % cols, row = Math.floor(i / cols);
-      positions[node.id] = {x: 18 + col*cellW + (cellW-nodeW)/2, y: 12 + row*cellH + 18, cx: 18 + col*cellW + (cellW-nodeW)/2 + nodeW/2, cy: 12 + row*cellH + 18 + nodeH/2};
-    });
-    const edgeSvg = edges.map(e=>{
-      const a=positions[e.source], b=positions[e.target]; if(!a||!b) return '';
-      let sx=a.cx, sy=a.cy, tx=b.cx, ty=b.cy;
-      if (Math.abs(tx-sx)>Math.abs(ty-sy)) { sx += tx>sx ? nodeW/2-3 : -nodeW/2+3; tx += tx>sx ? -nodeW/2+3 : nodeW/2-3; }
-      else { sy += ty>sy ? nodeH/2-2 : -nodeH/2+2; ty += ty>sy ? -nodeH/2+2 : nodeH/2-2; }
-      const midx=(sx+tx)/2, midy=(sy+ty)/2;
-      return `<g><path d="M ${sx} ${sy} L ${tx} ${ty}" stroke="#9a9a9a" stroke-width="1.35" fill="none" marker-end="url(#arrowhead)"/><rect x="${midx-67}" y="${midy-11}" width="134" height="22" fill="#000000" stroke="#3a3a3a"/><text x="${midx}" y="${midy+3}" font-family="Inter,Arial,sans-serif" font-size="9" fill="#9a9a9a" text-anchor="middle">${esc((e.label||'hubungan').slice(0,24))}</text></g>`;
-    }).join('');
-    const nodeSvg = nodes.map(n=>{
-      const p=positions[n.id], color=typeColor(n.type);
-      const label=String(n.label || n.id); const lines=label.length>25?[label.slice(0,24)+'…']: [label];
-      const evidence=list(n.article_ids).length;
-      return `<g><rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}" fill="#101010" stroke="#3a3a3a" stroke-width="1.2"/><rect x="${p.x}" y="${p.y}" width="5" height="${nodeH}" fill="${color}"/><text x="${p.x+15}" y="${p.y+25}" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700" fill="#ffffff">${esc(lines[0])}</text><text x="${p.x+15}" y="${p.y+43}" font-family="Inter,Arial,sans-serif" font-size="9" fill="#9a9a9a">${esc(String(n.type||'concept').toUpperCase())} · ${evidence} artikel</text></g>`;
-    }).join('');
-    canvas.innerHTML = `<svg id="system-map-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="System map hasil sintesis"><defs><marker id="arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L6,3.5 L0,7 Z" fill="#9a9a9a"/></marker></defs>${edgeSvg}${nodeSvg}</svg>`;
-    $('#system-map-meta').textContent = `${nodes.length} node · ${edges.length} hubungan · ${s.included_article_count || currentCounts().included} artikel terpilih`;
-    const typeNames = {concept:'Konsep',factor:'Faktor',outcome:'Outcome',context:'Konteks',method:'Metode'};
-    const types = [...new Set(nodes.map(n=>n.type||'concept'))];
-    legend.innerHTML = types.map(t=>`<span class="map-legend-chip"><span style="background:${typeColor(t)}"></span>${esc(typeNames[t]||t)}</span>`).join('');
-  }
-
   async function checkHealth() {
     const pill = $('#ai-status');
     try {
@@ -1649,15 +1996,7 @@ ${refnote}
   const dgVK = n => DG.collapsed.has(n.id) ? [] : n.children;
   // Nomor jurnal sebuah simpul, nomornya sama dengan tab Desain Riset (designRefs). Deret berurutan >= 3 diringkas: [1–3, 5, 8].
   // Akar tidak diberi nomor (berisi semua artikel).
-  function dgRefs(n) {
-    if (n.kind === 'root') return '';
-    const nums = [...new Set(list(n.article_ids).map(id => designRefs[id]).filter(Boolean))].sort((a, b) => a - b), parts = [];
-    for (let i = 0; i < nums.length;) {
-      let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
-      parts.push(j - i >= 2 ? `${nums[i]}–${nums[j]}` : nums.slice(i, j + 1).join(', ')); i = j + 1;
-    }
-    return parts.length ? `[${parts.join(', ')}]` : '';
-  }
+  function dgRefs(n) { return n.kind === 'root' ? '' : fmtRefs(n.article_ids, designRefs); }
   const dgTip = n => `${n.name}${n.count ? ` — ${n.count} artikel` : ''}${DG.refs && dgRefs(n) ? '\nNo. jurnal: ' + dgRefs(n) : ''}${n.definition ? '\n' + n.definition : ''}`;
   const dgTrunc = (s, m = 40) => { s = String(s || ''); return s.length > m ? s.slice(0, m - 1) + '…' : s; };
   // Teks panjang dibungkus (wrap) menjadi beberapa baris; nama lengkap tidak lagi dipotong.
@@ -1982,7 +2321,12 @@ ${refnote}
     $('#clear-articles').addEventListener('click',()=>{if(!state.articles.length)return;if(!confirm('Hapus semua artikel dan hasil sintesis dari proyek browser ini? Tindakan ini tidak dapat dibatalkan, ekspor backup dahulu jika perlu.'))return;state.articles=[];state.identifiedTotal=0;state.duplicateCount=0;state.synthesis=null;activeArticleDetail=null;$('#article-detail').classList.add('hidden');saveState();renderAll();toast('Daftar artikel dihapus.','success');});
     $$('.taxonomy-tab').forEach(b=>b.addEventListener('click',()=>{activeTaxonomy=b.dataset.taxonomy;renderTaxonomy();}));
     $('#cooccurrence-min')?.addEventListener('change',renderCooccurrence);
-    $('#cooccurrence-download')?.addEventListener('click',()=>downloadSvg('#cooccurrence-canvas svg','cooccurrence-network.svg'));
+    $('#cooccurrence-dominant')?.addEventListener('change',renderCooccurrence);
+    $('#cooccurrence-relayout')?.addEventListener('click',renderCooccurrence);
+    ['#system-map-max','#system-map-main','#system-map-hier'].forEach(id=>$(id)?.addEventListener('change',renderSystemMap));
+    $('#system-map-relayout')?.addEventListener('click',renderSystemMap);
+    $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); });
+    $('#cooccurrence-download')?.addEventListener('click',()=>{ const c=$('#cooccurrence-canvas'); if(c&&c._net) c._net.clear(); downloadSvg('#cooccurrence-canvas svg','cooccurrence-network.svg'); });
     $('#export-json').addEventListener('click',exportProject);
     setupUsagePopover();
     $('#import-json').addEventListener('click',()=>$('#import-json-file').click());
@@ -1991,6 +2335,7 @@ ${refnote}
     document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='o'){e.preventDefault();$('#import-json-file').click();}});
     $('#print-prisma').addEventListener('click',()=>{navigate('prisma');setTimeout(()=>window.print(),200);});
     $('#system-map-download').addEventListener('click',()=>{
+      const sc=$('#system-map-canvas'); if(sc&&sc._net) sc._net.clear();
       const svg=$('#system-map-svg');if(!svg){toast('Belum ada system map untuk diunduh.','error');return;}
       const clone=svg.cloneNode(true);clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
       const blob=new Blob([formalizeSvg(new XMLSerializer().serializeToString(clone))],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='system-map.svg';a.click();URL.revokeObjectURL(url);toast('System map diekspor sebagai SVG.','success');

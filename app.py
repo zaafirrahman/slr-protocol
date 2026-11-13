@@ -375,6 +375,53 @@ def extract_json(text):
     return json.loads(text)
 
 
+def repair_truncated_json(text):
+    """Selamatkan objek JSON yang terpotong di tengah (respons model berhenti sebelum semua tanda tutup).
+    Mencoba menutup string/array/objek yang terbuka; bila tetap gagal, memotong ke koma atau tanda tutup
+    terakhir yang valid, mulai dari yang paling belakang, lalu menutup sisanya. Isi yang terbuang hanya
+    ekor yang tidak lengkap. Return (objek, jumlah_karakter_terbuang); raise ValueError bila tak terselamatkan."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1].strip()
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("Tidak ada objek JSON.")
+    s = text[start:]
+    stack, in_str, esc, cuts = [], False, False, []
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if not stack or stack[-1] != ch:
+                break
+            stack.pop()
+            cuts.append((i + 1, "".join(reversed(stack))))
+        elif ch == ",":
+            cuts.append((i, "".join(reversed(stack))))
+    attempts = [(len(s), ('"' if in_str else "") + "".join(reversed(stack)))] + cuts[::-1][:400]
+    for pos, closers in attempts:
+        prefix = s[:pos]
+        if pos == len(s) and not in_str:
+            prefix = prefix.rstrip().rstrip(",")
+        try:
+            obj = json.loads(prefix + closers)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj:
+            return obj, len(s) - pos
+    raise ValueError("JSON terpotong dan tidak dapat diselamatkan.")
+
+
 def read_llm_stream(response, token_limit, progress, label):
     """Baca jawaban streaming (DeepSeek SSE / Ollama NDJSON), perbarui progres live, dan
     kembalikan dict berbentuk sama dengan respons non-streaming supaya sisa kode tidak berubah."""
@@ -445,9 +492,11 @@ def read_llm_stream(response, token_limit, progress, label):
     }
 
 
-def llm_json(prompt, max_output_tokens=3000, usage=None, progress=None, label="Panggilan AI"):
+def llm_json(prompt, max_output_tokens=3000, usage=None, progress=None, label="Panggilan AI", salvage=False):
     """Call the active provider (Ollama / DeepSeek) for JSON, retrying empty or malformed outputs safely.
-    Dengan `progress`, jawaban dibaca streaming dan dilaporkan live; tanpa itu, satu respons utuh (mis. /api/test-ai)."""
+    Dengan `progress`, jawaban dibaca streaming dan dilaporkan live; tanpa itu, satu respons utuh (mis. /api/test-ai).
+    `salvage=True`: JSON terpotong diselamatkan secara lokal (tanpa panggilan ulang); hasilnya membawa kunci
+    "_salvaged" (jumlah karakter ekor yang terbuang) supaya pemanggil bisa menandainya sebagai parsial."""
     if not AI_CONFIGURED:
         raise RuntimeError(CONFIG_ERROR)
 
@@ -633,6 +682,15 @@ def llm_json(prompt, max_output_tokens=3000, usage=None, progress=None, label="P
                 raise ValueError("JSON berhasil dibaca tetapi bukan objek JSON.")
             return parsed
         except (json.JSONDecodeError, ValueError) as exc:
+            if salvage:
+                try:
+                    parsed, dropped = repair_truncated_json(output_text)
+                    parsed["_salvaged"] = dropped
+                    if progress is not None:
+                        progress.log(f"{label}: ⚠ JSON terpotong; diselamatkan secara lokal (ekor {fmt_int(dropped)} karakter dibuang).")
+                    return parsed
+                except ValueError:
+                    pass
             malformed_text = output_text
             last_problem = (
                 f"{type(exc).__name__}: {str(exc)[:240]}; output_chars={len(output_text)}; "
@@ -1213,10 +1271,6 @@ Kembalikan JSON:
  "contradictions":[{{"issue":"temuan yang berbeda","article_ids":["ID"],"possible_explanation":"penjelasan potensial ditandai sebagai hipotesis bila belum diuji"}}],
  "research_gaps":[{{"gap":"celah riset","evidence":"dasar dari artikel yang direview","article_ids":["ID"],"suggested_next_step":"arah riset lanjutan"}}],
  "limitations_of_corpus":["keterbatasan korpus atau data ekstraksi; jangan mengklaim penilaian kualitas formal jika tidak dilakukan"],
- "system_map":{{
-   "nodes":[{{"id":"n1","label":"konsep","type":"concept|factor|outcome|context|method","article_ids":["ID"]}}],
-   "edges":[{{"source":"n1","target":"n2","label":"hubungan yang didukung bukti","direction":"positive|negative|mixed|unknown","article_ids":["ID"]}}]
- }},
  "review_notes":["catatan untuk verifikasi manual sebelum dipakai dalam tesis/publikasi"]
 }}
 """
@@ -1934,7 +1988,7 @@ Keluarkan JSON valid saja, dengan SATU objek top-level bernama taxonomy. Struktu
   "matrix": {{"row_axis_name":"Kelompok konsep","column_axis_name":"Dimensi pembanding","columns":["dimensi A","dimensi B"],"rows":[{{"name":"kategori","cells":[{{"column":"dimensi A","summary":"temuan ringkas atau tidak cukup bukti","article_ids":["ID valid"]}}]}}]}}
  }}
 }}
-Prioritas: hierarchical harus lengkap dan memenuhi aturan di atas. Representasi lain cukup ringkas (flat 3-6 kategori, faceted 2-3 facet dengan 2-3 nilai, matriks kecil). Jangan menyalin kutipan panjang. Jangan sertakan markdown atau komentar.
+Prioritas: hierarchical harus lengkap dan memenuhi aturan di atas. Representasi lain cukup ringkas (flat 3-6 kategori, faceted 2-3 facet dengan 2-3 nilai, matriks kecil). Definisi tiap node maksimal 25 kata. Tulis hierarchical lebih dulu dan selesaikan sebelum representasi lain. Jangan menyalin kutipan panjang. Jangan sertakan markdown atau komentar.
 """
 
 
@@ -2035,6 +2089,48 @@ def filter_references(data, valid_ids):
                 out[key] = filter_references(value, valid_ids)
         return out
     return data
+
+
+def empty_taxonomy():
+    return {
+        "hierarchical": {"root": {"id": "root", "name": "Taxonomy dari korpus"}, "nodes": []},
+        "faceted": {"facets": []}, "flat": [],
+        "polyhierarchy": {"nodes": [], "edges": []},
+        "matrix": {"row_axis_name": "Kategori", "column_axis_name": "Dimensi", "columns": [], "rows": []},
+    }
+
+
+def run_taxonomy(compact, summaries, themes, research_question, usage, progress=None, existing=None):
+    """Satu panggilan AI untuk taksonomi topik, dirapikan dan diperiksa kode. Dipakai oleh sintesis penuh
+    dan oleh /api/taxonomy (buat ulang taksonomi saja). Return dict field yang digabung ke hasil sintesis:
+    taxonomy, taxonomy_coverage, taxonomy_status (ok | partial | fallback | failed), taxonomy_note/error.
+    JSON terpotong diselamatkan secara lokal (status partial), tanpa panggilan ulang yang boros."""
+    valid_ids = {a.get("id") for a in compact}
+    try:
+        response = llm_json(
+            taxonomy_only_prompt(taxonomy_catalog(compact), summaries, themes, research_question),
+            max_output_tokens=3400, usage=usage, progress=progress, label="Taksonomi", salvage=True,
+        )
+        salvaged = response.pop("_salvaged", None) if isinstance(response, dict) else None
+        taxonomy = response.get("taxonomy") if isinstance(response, dict) else None
+        if not taxonomy_has_content(taxonomy):
+            raise RuntimeError("Model mengembalikan struktur taxonomy kosong atau tidak lengkap.")
+        taxonomy = filter_references(taxonomy, valid_ids)
+        taxonomy, coverage = finalize_hierarchy(taxonomy, valid_ids)
+        out = {"taxonomy": taxonomy, "taxonomy_coverage": coverage, "taxonomy_status": "ok"}
+        if salvaged:
+            out["taxonomy_status"] = "partial"
+            out["taxonomy_note"] = (
+                "Respons AI terpotong sebelum selesai, sehingga bagian akhirnya dibuang dan hanya bagian yang utuh yang dipakai. "
+                "Periksa cakupan artikel di bawah; klik \"Buat ulang peta topik\" untuk mencoba lagi tanpa mengulang sintesis."
+            )
+        return out
+    except Exception as exc:
+        if progress is not None:
+            progress.log(f"Taksonomi: ⚠ {str(exc)[:200]} (sintesis tetap disimpan).")
+        if taxonomy_has_content(existing):
+            return {"taxonomy": existing, "taxonomy_status": "fallback", "taxonomy_note": str(exc)[:900]}
+        return {"taxonomy": empty_taxonomy(), "taxonomy_status": "failed", "taxonomy_error": str(exc)[:900]}
 
 
 @app.get("/")
@@ -2407,7 +2503,7 @@ def synthesize():
         progress.set(current=step)
         result = llm_json(
             final_synthesis_prompt(summaries, catalog, research_question, inclusion, exclusion),
-            max_output_tokens=1700,
+            max_output_tokens=2600,  # dulu 1700: JSON terpotong sehingga limitations_of_corpus/review_notes hilang saat "diperbaiki"
             usage=usage,
             progress=progress,
             label="Sintesis akhir",
@@ -2423,38 +2519,9 @@ def synthesize():
         # so the model often returned a valid synthesis but omitted the taxonomy field.
         step += 1
         progress.set(current=step)
-        try:
-            taxonomy_response = llm_json(
-                taxonomy_only_prompt(taxonomy_catalog(compact), summaries, result.get("main_themes", []), research_question),
-                max_output_tokens=3400,
-                usage=usage,
-                progress=progress,
-                label="Taksonomi",
-            )
-            taxonomy = taxonomy_response.get("taxonomy") if isinstance(taxonomy_response, dict) else None
-            if not taxonomy_has_content(taxonomy):
-                raise RuntimeError("Model mengembalikan struktur taxonomy kosong atau tidak lengkap.")
-            taxonomy = filter_references(taxonomy, valid_article_ids)
-            taxonomy, coverage = finalize_hierarchy(taxonomy, valid_article_ids)
-            result["taxonomy"] = taxonomy
-            result["taxonomy_coverage"] = coverage
-            result.pop("taxonomy_error", None)
-            result["taxonomy_status"] = "ok"
-        except Exception as taxonomy_exc:
-            progress.log(f"Taksonomi: ⚠ {str(taxonomy_exc)[:200]} (sintesis tetap disimpan).")
-            # Do not discard a valid synthesis or taxonomy just because the focused call failed.
-            if taxonomy_has_content(result.get("taxonomy")):
-                result["taxonomy_status"] = "fallback"
-                result["taxonomy_note"] = str(taxonomy_exc)[:900]
-            else:
-                result["taxonomy_error"] = str(taxonomy_exc)[:900]
-                result["taxonomy_status"] = "failed"
-                result["taxonomy"] = {
-                    "hierarchical": {"root": {"id": "root", "name": "Taxonomy dari korpus"}, "nodes": []},
-                    "faceted": {"facets": []}, "flat": [],
-                    "polyhierarchy": {"nodes": [], "edges": []},
-                    "matrix": {"row_axis_name": "Kategori", "column_axis_name": "Dimensi", "columns": [], "rows": []},
-                }
+        for stale in ("taxonomy_error", "taxonomy_note"):
+            result.pop(stale, None)
+        result.update(run_taxonomy(compact, summaries, result.get("main_themes", []), research_question, usage, progress, existing=result.get("taxonomy")))
 
         result["included_article_count"] = len(selected)
         result["generated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2468,6 +2535,29 @@ def synthesize():
         progress.log(f"GAGAL: {str(exc)[:300]}")
         progress.finish(ok=False)
         return jsonify({"error": str(exc)[:2200], "usage": usage}), 502
+
+
+@app.post("/api/taxonomy")
+@auth_guard
+def taxonomy_only():
+    """Buat ulang HANYA taksonomi topik (satu panggilan AI) dari artikel INCLUDE dan tema sintesis yang sudah ada.
+    Dipakai tombol "Buat ulang peta topik" supaya kegagalan taksonomi tidak memaksa seluruh sintesis diulang."""
+    if not AI_CONFIGURED:
+        return jsonify({"error": CONFIG_ERROR}), 503
+    body = request.get_json(silent=True) or {}
+    articles = body.get("articles", [])
+    if not isinstance(articles, list):
+        return jsonify({"error": "Data artikel tidak valid."}), 400
+    selected = [a for a in articles if isinstance(a, dict) and a.get("screening_decision") == "include" and a.get("eligibility_decision") == "include"][:250]
+    if not selected:
+        return jsonify({"error": "Belum ada artikel dengan keputusan manual INCLUDE pada screening dan full-text eligibility."}), 400
+    themes = body.get("main_themes") if isinstance(body.get("main_themes"), list) else []
+    rq = str(body.get("research_question", "")).strip()[:1000]
+    usage = new_usage()
+    result = run_taxonomy([compact_article(a) for a in selected], [], themes, rq, usage)
+    if result.get("taxonomy_status") == "failed":
+        return jsonify({"error": result.get("taxonomy_error", "Taksonomi gagal dibuat."), "usage": usage}), 502
+    return jsonify({**result, "usage": usage})
 
 
 @app.errorhandler(413)
