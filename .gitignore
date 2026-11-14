@@ -13,3 +13,4 @@ taksonomi-desain-riset*.json
 laporan-desain-riset-*.html
 contoh-laporan-*.html
 .env.tmp
+output/
