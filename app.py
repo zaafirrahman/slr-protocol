@@ -2201,13 +2201,17 @@ def test_ai():
         return jsonify({"ok": False, "provider": PROVIDER_LABEL, "model": MODEL, "error": str(exc)[:1800]}), 502
 
 
+def codebook_payload():
+    return {"version": CODEBOOK_VERSION, "analysis_version": ANALYSIS_VERSION, "fields": RESEARCH_ONION,
+            "explicit_terms": {f: list(c) for f, c in EXPLICIT_TERMS.items()},
+            "method_groups": [{"id": g[0], "label": g[1], "keys": g[2]} for g in METHOD_GROUPS]}
+
+
 @app.get("/api/codebook")
 @auth_guard
 def codebook():
     """Codebook research onion untuk label dan tooltip di frontend."""
-    return jsonify({"version": CODEBOOK_VERSION, "analysis_version": ANALYSIS_VERSION, "fields": RESEARCH_ONION,
-                    "explicit_terms": {f: list(c) for f, c in EXPLICIT_TERMS.items()},
-                    "method_groups": [{"id": g[0], "label": g[1], "keys": g[2]} for g in METHOD_GROUPS]})
+    return jsonify(codebook_payload())
 
 
 @app.post("/api/design-taxonomy")
@@ -2558,6 +2562,66 @@ def taxonomy_only():
     if result.get("taxonomy_status") == "failed":
         return jsonify({"error": result.get("taxonomy_error", "Taksonomi gagal dibuat."), "usage": usage}), 502
     return jsonify({**result, "usage": usage})
+
+
+# ---------------------------------------------------------------- Ekspor proyek sebagai HTML mandiri
+# Berkas yang sama dengan aplikasi (template + CSS + JS), ditambah data proyek dan hasil komputasi server yang
+# biasanya diminta lewat API (taksonomi desain riset, codebook). app.js mengenali window.__SLR_VIEWER__ dan berjalan
+# hanya-baca: semua tab dan kontrol grafik tetap hidup tanpa server, tanpa internet.
+EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'"
+
+
+def json_for_script(obj):
+    """JSON aman ditanam di dalam <script>: karakter < > & dan pemisah baris Unicode di-escape."""
+    text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
+        text = text.replace(ch, esc)
+    return text
+
+
+def build_project_html(state, design, codebook, generated_at=None):
+    import base64
+    from html import escape
+    static = Path(app.static_folder)
+    html = (BASE_DIR / "templates" / "index.html").read_text(encoding="utf-8")
+    css = re.sub(r"@import\s+url\([^)]*\)\s*;?", "", (static / "style.css").read_text(encoding="utf-8"))   # font web tidak dimuat offline
+    js = (static / "app.js").read_text(encoding="utf-8").replace("</script", "<\\/script")   # mencegah penutupan <script> dini
+    logo = "data:image/png;base64," + base64.b64encode((static / "slr.png").read_bytes()).decode("ascii")
+    html = re.sub(r"\{\{\s*url_for\('static',\s*filename='slr\.png'\)\s*\}\}", lambda m: logo, html)
+    html = re.sub(r"<img[^>]*(?:latte0nim|feinstehaar)\.jpg[^>]*>", "", html)           # avatar kredit (ratusan KB): teks kreditnya tetap
+    html = re.sub(r'\s*<script defer src="[^"]*app\.js[^"]*"></script>', "", html)
+    html = re.sub(r'<link rel="stylesheet"[^>]*>', lambda m: "<style>" + css + "</style>", html, count=1)
+    if "{{" in html or "{%" in html:
+        raise RuntimeError("Template masih memuat tag Jinja yang belum diganti; ekspor dibatalkan.")
+    topic = str((state.get("designUi") or {}).get("topic") or (state.get("meta") or {}).get("research_question") or "Proyek SLR").strip()[:120]
+    html = html.replace("<title>SLR Protocol - Systematic Literature Review</title>", "<title>" + escape("Laporan SLR: " + topic) + "</title>", 1)
+    html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + EXPORT_CSP + '">', 1)
+    payload = {"version": 1, "generated_at": generated_at or datetime.now(timezone.utc).isoformat(), "topic": topic,
+               "state": state, "design": design, "codebook": codebook}
+    tail = "<script>window.__SLR_VIEWER__=" + json_for_script(payload) + ";</script>\n<script>" + js + "</script>\n"
+    cut = html.rindex("</body>")
+    return html[:cut] + tail + html[cut:]
+
+
+@app.post("/api/export-html")
+@auth_guard
+def export_html():
+    """Ekspor seluruh proyek sebagai satu berkas HTML interaktif (hanya-baca, bisa dibuka offline)."""
+    body = request.get_json(silent=True) or {}
+    state = body.get("state")
+    if not isinstance(state, dict) or not isinstance(state.get("articles"), list):
+        return jsonify({"error": "Data proyek tidak valid: daftar artikel tidak ditemukan."}), 400
+    by_id = {str(a.get("id")): a for a in state["articles"] if isinstance(a, dict)}
+    req = body.get("design") if isinstance(body.get("design"), dict) else {}
+    ids = [str(i) for i in req.get("article_ids", [])] if isinstance(req.get("article_ids"), list) else []
+    arts = [by_id[i] for i in ids if i in by_id][:500]
+    normalization = req.get("normalization") if isinstance(req.get("normalization"), dict) else None
+    try:
+        design = build_design_taxonomy(arts, str(req.get("topic", "")).strip()[:200], normalization) if arts else None
+        html = build_project_html(state, design, codebook_payload())
+    except Exception as exc:  # noqa: BLE001 - kegagalan ekspor harus sampai ke pengguna sebagai pesan, bukan halaman 500
+        return jsonify({"error": f"Gagal menyusun HTML: {exc}"}), 500
+    return Response(html, mimetype="text/html; charset=utf-8", headers={"Cache-Control": "no-store"})
 
 
 @app.errorhandler(413)

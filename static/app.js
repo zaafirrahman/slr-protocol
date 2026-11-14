@@ -1,5 +1,8 @@
 (() => {
   'use strict';
+  // Mode hanya-baca untuk ekspor HTML proyek (server menanam window.__SLR_VIEWER__ = {state, design, codebook, ...}).
+  // Di mode ini tidak ada localStorage proyek, tidak ada panggilan jaringan, dan tidak ada yang bisa mengubah data.
+  const VIEWER = window.__SLR_VIEWER__ || null;
   // JANGAN diganti: ini kunci localStorage proyek. Mengganti nama membuat proyek yang sudah tersimpan di browser "hilang".
   const STORE_KEY = 'litreview_studio_project_v1';
   const EMPTY_USAGE = { calls: 0, prompt_tokens: 0, cache_hit_tokens: 0, completion_tokens: 0, cost_usd: 0, usd_to_idr: 18000 };
@@ -22,6 +25,10 @@
   const safeArrayText = (arr) => list(arr).length ? list(arr).map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n') : 'Belum diekstrak / tidak dinyatakan dalam artikel.';
 
   function loadState() {
+    if (VIEWER && VIEWER.state) {
+      const d = structuredClone(VIEWER.state);
+      return {...structuredClone(DEFAULT_STATE), ...d, articles: Array.isArray(d.articles) ? d.articles : [], meta: d.meta || {}, usage: normaliseUsage(d.usage)};
+    }
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return structuredClone(DEFAULT_STATE);
@@ -33,6 +40,7 @@
     }
   }
   function saveState() {
+    if (VIEWER) return;   // ekspor hanya-baca: jangan menyentuh penyimpanan browser
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
       updateSavedHint(true);
@@ -226,6 +234,7 @@
   }
   // ---- Ajakan bantu bayar API via QRIS (opsional, tampil di bawah popup token) ----
   function donateBlockHtml(idr, nf) {
+    if (VIEWER) return '';   // ekspor hanya-baca: tanpa ajakan donasi/QRIS
     const rounded = idr >= 1 ? Math.max(100, Math.round(idr / 100) * 100) : 0;
     const msg = rounded
       ? `Habis token sekitar Rp${nf.format(rounded)} nih ngab. Kalau mau bantu bayar API biar server tetep tancap gas, bisa scan QRIS di bawah ya!`
@@ -289,7 +298,15 @@
     const calls = u.calls ? ` · ${nf.format(u.calls)} panggilan API` : '';
     return `Token terpakai: ${nf.format(u.prompt_tokens || 0)} input · ${nf.format(u.completion_tokens || 0)} output${cost}${calls}`;
   }
+  // Jawaban API yang ditanam server pada ekspor HTML (hasil komputasi murni, bukan AI); selain itu tidak tersedia offline.
+  function viewerApi(path) {
+    const key = String(path).split('?')[0];
+    if (key === '/api/design-taxonomy' && VIEWER.design) return structuredClone(VIEWER.design);
+    if (key === '/api/codebook' && VIEWER.codebook) return structuredClone(VIEWER.codebook);
+    throw new Error('Fitur ini hanya tersedia di aplikasi; ekspor HTML bersifat hanya-baca.');
+  }
   async function api(path, options = {}) {
+    if (VIEWER) return viewerApi(path);
     const response = await fetch(path, options);
     let data = {};
     try { data = await response.json(); } catch (_) { data = {}; }
@@ -329,6 +346,7 @@
 
   function navigate(target) {
     if (!target || !$('#' + target)) return;
+    if (VIEWER && target === 'arah-riset') return;   // Arah Riset TMI bukan bagian dari data proyek
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
     const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', 'design-diagram':'Diagram Taksonomi', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
@@ -408,8 +426,8 @@
       return `<tr>
         <td class="article-title-cell"><span class="article-title">${esc(a.title || a.filename)}</span><span class="article-meta">${esc(authors || 'Penulis tidak terdeteksi')} · ${esc(year)}${a.doi ? ` · DOI: ${esc(a.doi)}` : ''}</span><span class="article-filename">${esc(a.filename || '')}</span>${a.owner_verified ? '<span class="verified-mark" title="Sudah diverifikasi terhadap PDF">✓ dicek</span>' : ''}</td>
         <td>${recommendationBadge(a)}<div class="article-meta" style="max-width:180px;margin-top:6px">${esc((a.screening_suggestion || {}).reason || 'Tidak ada alasan rekomendasi.')}</div></td>
-        <td class="select-cell"><select aria-label="Keputusan screening" data-id="${esc(a.id)}" data-field="screening_decision">${decisionOptions(screen)}</select></td>
-        <td class="select-cell"><select aria-label="Keputusan full text" data-id="${esc(a.id)}" data-field="eligibility_decision" ${screen !== 'include' ? 'disabled title="Screening harus INCLUDE terlebih dahulu"' : ''}>${decisionOptions(eligibility)}</select></td>
+        <td class="select-cell"><select aria-label="Keputusan screening" data-id="${esc(a.id)}" data-field="screening_decision"${VIEWER ? ' disabled' : ''}>${decisionOptions(screen)}</select></td>
+        <td class="select-cell"><select aria-label="Keputusan full text" data-id="${esc(a.id)}" data-field="eligibility_decision" ${VIEWER ? 'disabled' : screen !== 'include' ? 'disabled title="Screening harus INCLUDE terlebih dahulu"' : ''}>${decisionOptions(eligibility)}</select></td>
         <td><button class="icon-button" data-detail="${esc(a.id)}" aria-label="Lihat detail artikel" title="Detail artikel">↗</button></td>
       </tr>`;
     }).join('');
@@ -432,7 +450,7 @@
     const truncNote = a.text_truncated ? (a.text_chars_body
       ? `\n\nTeks dipotong: isi artikel di luar daftar pustaka ${esc(a.text_chars_body)} karakter, ${esc(a.text_chars)} dikirim ke AI. Sekitar ${esc(skipped)} karakter (${esc(Math.round(100 * skipped / a.text_chars_body))}%) di bagian tengah dilewati, jadi temuan dari bagian itu mungkin tidak tertangkap. Naikkan MAX_TEXT_CHARS di .env bila perlu (batas keras 200000).`
       : `\n\nTeks dipotong: ${esc(a.text_chars)} dari ${esc(a.text_chars_original)} karakter dikirim ke AI (angka ini masih termasuk daftar pustaka; bagian tengah isi artikel dilewati). Unggah ulang untuk mendapat angka yang lebih akurat.`) : '';
-    $('#article-detail').innerHTML = `<button class="icon-button detail-close" id="close-detail" aria-label="Tutup detail">×</button><h2 class="detail-title">${esc(a.title)}</h2><div class="detail-meta">${esc(list(a.authors).join(', ') || 'Penulis tidak terdeteksi')} · ${esc(a.year || 'Tahun tidak terdeteksi')} · ${esc(a.pages || '?')} halaman · ${esc(a.filename || '')}</div><label class="verify-box"><input type="checkbox" id="verify-article" data-id="${esc(a.id)}" ${a.owner_verified ? 'checked' : ''}> <span>Sudah saya cek label dan kutipan artikel ini terhadap PDF</span></label><div class="detail-grid">
+    $('#article-detail').innerHTML = `<button class="icon-button detail-close" id="close-detail" aria-label="Tutup detail">×</button><h2 class="detail-title">${esc(a.title)}</h2><div class="detail-meta">${esc(list(a.authors).join(', ') || 'Penulis tidak terdeteksi')} · ${esc(a.year || 'Tahun tidak terdeteksi')} · ${esc(a.pages || '?')} halaman · ${esc(a.filename || '')}</div><label class="verify-box"><input type="checkbox" id="verify-article" data-id="${esc(a.id)}" ${a.owner_verified ? 'checked' : ''}${VIEWER ? ' disabled' : ''}> <span>Sudah saya cek label dan kutipan artikel ini terhadap PDF</span></label><div class="detail-grid">
       <div class="detail-block"><h4>ABSTRACT / TUJUAN</h4><p>${escapeWithBreaks(a.abstract || a.objective || 'Tidak diekstrak.')}</p></div>
       <div class="detail-block"><h4>METODE & KONTEKS</h4><p>${escapeWithBreaks(a.methods || 'Metode tidak terdeteksi')}\n\nKonteks: ${escapeWithBreaks(a.context || 'Tidak tersedia')}</p></div>
       <div class="detail-block"><h4>TEMUAN UTAMA</h4><ul>${list(a.findings).length ? list(a.findings).map(x=>`<li>${esc(x)}</li>`).join('') : '<li>Temuan tidak diekstrak.</li>'}</ul></div>
@@ -887,6 +905,31 @@
         + (n.depth && n.ids.length ? `<rect x="${n.w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${n.w - 16.5}" y="4" text-anchor="middle" font-family="${NET_FONT}" font-size="11" font-weight="700" fill="${col}">${n.ids.length}</text>` : '') + '</g>';
     });
     return `<div class="system-map-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
+  }
+  // Poly-hierarchy turunan kode (dipakai bila AI tidak mengisinya): konsep irisan = pasangan subkategori (daun) dari dua cabang
+  // berbeda yang berbagi >= 2 artikel; induknya kedua daun itu, article_ids = artikel yang sama. Maksimal 12 irisan terkuat.
+  function derivePolyhierarchy(h) {
+    const rootId = (h && h.root && h.root.id) || 'root', nodes = list(h && h.nodes);
+    const byId = new Map(nodes.map(n => [n.id, n])), kids = new Map();
+    nodes.forEach(n => { const p = n.parent_id || rootId; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(n); });
+    const branchOf = n => { let c = n, g = 0; while (c && c.parent_id && c.parent_id !== rootId && g++ < 12) c = byId.get(c.parent_id); return c; };
+    const leaves = nodes.filter(n => !kids.has(n.id) && list(n.article_ids).length), found = [];
+    for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
+      const A = leaves[i], B = leaves[j], ba = branchOf(A), bb = branchOf(B); if (!ba || !bb || ba.id === bb.id) continue;
+      const bs = new Set(list(B.article_ids)), shared = list(A.article_ids).filter(id => bs.has(id));
+      if (shared.length >= 2) found.push({A, B, shared, ba, bb});
+    }
+    found.sort((p, q) => q.shared.length - p.shared.length).splice(12);
+    const clip = t => { t = String(t || ''); return t.length > 34 ? t.slice(0, 33) + '…' : t; }, out = new Map();
+    const need = (n, parents) => { if (!out.has(n.id)) out.set(n.id, {id: n.id, name: n.name, description: n.description || '', parent_ids: parents, article_ids: list(n.article_ids)}); };
+    found.forEach(f => {
+      [f.ba, f.bb].forEach(b => need(b, []));
+      need(f.A, [f.ba.id]); need(f.B, [f.bb.id]);
+      const id = `x_${f.A.id}_${f.B.id}`;
+      out.set(id, {id, name: `${clip(f.A.name)} × ${clip(f.B.name)}`, description: `Artikel yang sama-sama termasuk di “${f.A.name}” dan “${f.B.name}”.`, parent_ids: [f.A.id, f.B.id], article_ids: f.shared});
+    });
+    out.forEach(n => { if (!n.parent_ids.length) n.article_ids = [...new Set(nodes.filter(l => branchOf(l) && branchOf(l).id === n.id).flatMap(l => list(l.article_ids)))]; });
+    return {nodes: [...out.values()], edges: [], derived: true};
   }
   // ---- Poly-hierarchy: graf berlapis (induk di atas), satu konsep boleh punya beberapa induk ----
   function polyDiagram(canvas, nodes, edges) {
@@ -1595,6 +1638,33 @@ ${refnote}
     return `<div class="dt-root">${esc(root.name || 'Konsep utama')}</div>${body ? `<ul class="dt-list dt-root-list">${body}</ul>` : ''}`;
   }
 
+  // Pemeriksaan konsistensi taksonomi (dihitung kode, tanpa AI). Hasil: [{tab, text}] ditampilkan sebagai kotak "Perlu dicek".
+  // Pemeriksaan 1 memakai kata kunci pada nama kategori, jadi sifatnya petunjuk, bukan vonis.
+  const TX_HOW = /\b(validasi|benchmark|eksperimen|evaluasi|simulasi|studi kasus|data arsip|metrik|pengujian)\b/i;
+  const txNorm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function taxonomyChecks(tax, total) {
+    const out = []; if (!tax) return out;
+    const hNodes = list(tax.hierarchical && tax.hierarchical.nodes), flat = list(tax.flat), facets = list(tax.faceted && tax.faceted.facets), rows = list(tax.matrix && tax.matrix.rows);
+    // 1. kategori yang tampaknya tentang CARA studi dilakukan, bukan topik yang diteliti
+    const how = (tab, name) => { const m = TX_HOW.exec(String(name || '')); if (m) out.push({tab, text: `Kategori “${name}” tampaknya tentang cara studi dilakukan (kata kunci “${m[1].toLowerCase()}”), bukan topik yang diteliti. Peta topik seharusnya mengelompokkan apa yang diteliti; kategori seperti ini lebih cocok masuk analisis desain riset.`}); };
+    flat.forEach(x => how('flat', x.name)); hNodes.forEach(n => how('hierarchical', n.name)); rows.forEach(r => how('matrix', r.name));
+    // 2. dimensi faceted yang tidak mencakup semua artikel
+    facets.forEach(f => {
+      const u = new Set(list(f.values).flatMap(v => list(v.article_ids)));
+      if (total && u.size < total) out.push({tab: 'faceted', text: `Dimensi “${f.name || 'tanpa nama'}”: ${total - u.size} dari ${total} artikel belum punya nilai (${u.size}/${total} terklasifikasi). Bisa jadi memang tidak relevan untuk artikel tersebut, bisa jadi terlewat.`});
+    });
+    // 3. baris matrix yang hanya mengutip sebagian artikel dari kategori padanannya
+    const cats = [...flat, ...hNodes.filter(n => list(n.article_ids).length)];
+    rows.forEach(r => {
+      const rn = txNorm(r.name); if (rn.length < 6) return;
+      const cat = cats.find(c => { const cn = txNorm(c.name); return cn === rn || (Math.min(cn.length, rn.length) >= 8 && (cn.includes(rn) || rn.includes(cn))); });
+      if (!cat) return;
+      const cu = new Set(list(r.cells).flatMap(c => list(c.article_ids))), all = new Set(list(cat.article_ids)), got = [...all].filter(id => cu.has(id)).length;
+      if (all.size && got < all.size) out.push({tab: 'matrix', text: `Baris “${r.name}”: tabel hanya mengutip ${got} dari ${all.size} artikel kategori ini. Sel matrix merangkum sebagian artikel saja, jadi angkanya tidak harus sama dengan tab lain.`});
+    });
+    return out;
+  }
+
   function renderTaxonomy() {
     const s = state.synthesis;
     const box = $('#taxonomy-content');
@@ -1617,10 +1687,11 @@ ${refnote}
       const data = list(s.taxonomy.flat);
       box.innerHTML = `<div class="synth-eyebrow">FLAT / LIST TAXONOMY</div><h2 style="font-size:17px;margin:0 0 15px">Kategori pada level yang sama</h2>${data.length ? `<div class="taxonomy-list">${data.map((x,i)=>`<div class="taxonomy-item"><div class="taxonomy-index">KATEGORI ${String(i+1).padStart(2,'0')}</div><h3>${esc(x.name || 'Kategori')}</h3><p>${esc(x.description || '')}</p><span class="evidence-count">${list(x.article_ids).length} artikel pendukung</span><div class="source-chips">${citationChips(x.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Model tidak menghasilkan daftar kategori. Periksa data sintesis atau coba ulangi.</div>'}`;
     } else if (activeTaxonomy === 'poly') {
-      const data = s.taxonomy.polyhierarchy || {};
+      const aiPoly = s.taxonomy.polyhierarchy || {}, derived = !list(aiPoly.nodes).length;
+      const data = derived ? derivePolyhierarchy(s.taxonomy.hierarchical) : aiPoly;
       const nodes = list(data.nodes);
       const nodeNames = Object.fromEntries(nodes.map(n => [n.id, n.name]));
-      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#9a9a9a;font-size:11px;margin:0 0 15px">Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.</p>${nodes.length ? `<div id="poly-canvas" class="system-map-canvas"></div><div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : '<div class="empty-state">Belum ada node poly-hierarchy pada hasil sintesis.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">POLY-HIERARCHICAL TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Satu konsep dapat memiliki beberapa parent</h2><p style="color:#9a9a9a;font-size:11px;margin:0 0 15px">${derived ? 'Model AI tidak mengisi bagian ini (hierarkinya tidak memuat konsep berinduk dua), jadi konsep irisan (×) dihitung kode: pasangan subkategori dari dua cabang berbeda yang memuat artikel yang sama (minimal 2). Induknya adalah kedua subkategori itu; tidak ada yang ditebak.' : 'Relasi parent berasal dari struktur model dan harus diverifikasi secara konseptual.'}</p>${nodes.length ? `<div id="poly-canvas" class="system-map-canvas"></div><div class="poly-tree">${nodes.map(n=>`<div class="poly-node"><h3>${esc(n.name || n.id)}</h3><p>${esc(n.description || '')}</p><div class="poly-parents">Parent: ${list(n.parent_ids).length ? list(n.parent_ids).map(id=>esc(nodeNames[id] || id)).join(' · ') : 'Tidak ditentukan'}</div><div class="source-chips">${citationChips(n.article_ids)}</div></div>`).join('')}</div>` : `<div class="empty-state">${derived ? 'Tidak ada konsep berinduk dua: tidak ada pasangan subkategori lintas cabang yang berbagi minimal 2 artikel.' : 'Belum ada node poly-hierarchy pada hasil sintesis.'}</div>`}`;
       if (nodes.length) polyDiagram($('#poly-canvas'), nodes, list(data.edges));
     } else {
       const m = s.taxonomy.matrix || {};
@@ -1628,13 +1699,15 @@ ${refnote}
       const rows = list(m.rows);
       box.innerHTML = `<div class="synth-eyebrow">MATRICES TAXONOMY</div><h2 style="font-size:17px;margin:0 0 7px">Klasifikasi silang antar dimensi</h2><p style="font-size:11px;color:#9a9a9a;margin:0 0 15px">Baris: ${esc(m.row_axis_name || 'Dimensi baris')} · Kolom: ${esc(m.column_axis_name || 'Dimensi kolom')}</p>${rows.length && cols.length ? `<div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>${esc(m.row_axis_name || 'Kategori')}</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.name || 'Baris')}</td>${cols.map(col=>{const cell=list(row.cells).find(c=>c.column===col);return `<td>${esc(cell ? cell.summary || '—' : '—')}${cell && list(cell.article_ids).length ? `<span class="matrix-cell-evidence">${list(cell.article_ids).length} artikel</span><div class="source-chips">${citationChips(cell.article_ids)}</div>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">Belum ada matriks taxonomy pada hasil sintesis.</div>'}`;
     }
+    const checks = taxonomyChecks(s.taxonomy, (s.taxonomy_coverage && s.taxonomy_coverage.total) || currentCounts().included).filter(c => c.tab === activeTaxonomy);
+    if (checks.length) box.insertAdjacentHTML('afterbegin', `<div class="notice notice-warm"><strong>Perlu dicek</strong><span>Pemeriksaan otomatis oleh kode (bukan penilaian AI); cek ke artikelnya sebelum dipakai.<ul style="margin:6px 0 0 18px;padding:0">${checks.map(c => `<li>${esc(c.text)}</li>`).join('')}</ul></span></div>`);
     if (s.taxonomy_status === 'partial') box.insertAdjacentHTML('afterbegin', `<div class="notice notice-warm"><strong>Peta topik parsial</strong><span>${esc(s.taxonomy_note || 'Respons AI terpotong; hanya bagian yang utuh yang dipakai.')}</span><button type="button" class="button button-quiet button-small" id="taxonomy-retry">Buat ulang peta topik</button></div>`);
   }
 
   // Buat ulang taksonomi saja (tanpa mengulang 29 panggilan sintesis).
   let taxonomyBusy = false;
   async function retryTaxonomy() {
-    if (taxonomyBusy || isBusy) return;
+    if (VIEWER || taxonomyBusy || isBusy) return;
     const s = state.synthesis; if (!s) return;
     if (!currentCounts().included) { toast('Belum ada artikel INCLUDE pada screening dan full-text eligibility.', 'error'); return; }
     taxonomyBusy = true;
@@ -1812,6 +1885,57 @@ ${refnote}
     const blob = new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`slr-protocol-project-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
     toast('Backup proyek diekspor sebagai JSON.', 'success');
+  }
+  // Ekspor seluruh proyek sebagai satu berkas HTML interaktif (hanya-baca, bisa dibuka offline). Server merakit berkasnya.
+  let exportingHtml = false;
+  async function exportProjectHtml() {
+    if (VIEWER || exportingHtml) return;
+    if (!state.articles.length) { toast('Belum ada artikel untuk diekspor.', 'error'); return; }
+    exportingHtml = true;
+    const btn = $('#export-as-html'); if (btn) btn.disabled = true;
+    toast('Menyusun ekspor HTML…');
+    try {
+      const arts = designScopeArticles(), ui = state.designUi || {};
+      const payload = {state: {format: 'slr-protocol-project', version: 1, exported_at: new Date().toISOString(), ...state},
+        design: {article_ids: arts.map(a => a.id), topic: ui.topic || '', normalization: normState().approved}};
+      const response = await fetch('/api/export-html', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+      if (!response.ok) {
+        let message = `Permintaan gagal (HTTP ${response.status}).`;
+        try { message = (await response.json()).error || message; } catch (_) { /* respons bukan JSON */ }
+        throw new Error(message);
+      }
+      const html = await response.text();
+      const slug = String(ui.topic || 'proyek').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'proyek';
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([html], {type: 'text/html;charset=utf-8'}));
+      link.download = `slr-protocol-laporan-${slug}-${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      toast('Laporan proyek (HTML) diunduh.', 'success');
+    } catch (error) {
+      toast('Gagal mengekspor HTML: ' + (error.message || error), 'error');
+    } finally {
+      exportingHtml = false; if (btn) btn.disabled = false;
+    }
+  }
+  // Mode hanya-baca (ekspor HTML): formulir tampil tetapi terkunci; pengubah data diblokir di fase capture.
+  function initViewer() {
+    document.body.classList.add('is-viewer');
+    const when = VIEWER.generated_at ? new Date(VIEWER.generated_at) : null;
+    const banner = document.createElement('div');
+    banner.className = 'viewer-banner';
+    banner.innerHTML = `<strong>Ekspor proyek · hanya-baca</strong><span>Dibuat ${esc(when && !Number.isNaN(when.getTime()) ? when.toLocaleString('id-ID', {dateStyle: 'long', timeStyle: 'short'}) : '-')} · ${esc(state.articles.length)} artikel. Seluruh data proyek tertanam di berkas ini dan bisa dibuka tanpa internet. Untuk mengubah data, unduh JSON dari sini lalu impor ke aplikasi.</span>`;
+    const wrap = $('.page-wrap'); if (wrap) wrap.insertBefore(banner, wrap.firstChild);
+    ['research-question', 'source-name', 'search-date', 'search-query', 'inclusion', 'exclusion'].forEach(id => { const el = $('#' + id); if (el) el.readOnly = true; });
+    ['guide-context', 'design-topic', 'design-scope'].forEach(id => { const el = $('#' + id); if (el) el.disabled = true; });
+    const card = $('.private-card'); if (card) card.innerHTML = '<span class="private-dot"></span><div><strong>Ekspor hanya-baca</strong><small>Data tertanam di berkas ini</small></div>';
+    const copy = $('.hero-copy'); if (copy) copy.textContent = 'Ringkasan proyek systematic review ini: PRISMA, sintesis, peta topik, co-occurrence, system map, dan taksonomi desain riset. Grafik tetap bisa dikontrol.';
+    const exp = $('#export-json'); if (exp) exp.textContent = 'Unduh data (JSON) ↗';
+    const block = (types, selector) => types.forEach(t => document.addEventListener(t, e => {
+      if (e.target && e.target.closest && e.target.closest(selector)) { e.stopPropagation(); if (t === 'submit') e.preventDefault(); }
+    }, true));
+    block(['change', 'input'], '#articles-body, #article-detail, #norm-panel, #design-scope, #design-topic, #project-form');
+    block(['click'], '#run-synthesis, #clear-articles, #norm-panel, #design-steps, #analyze-button, #usage-reset, #import-json, #taxonomy-retry');
+    block(['submit'], '#upload-form, #project-form');
   }
   async function importProject(file) {
     try {
@@ -2327,7 +2451,16 @@ ${refnote}
     $('#system-map-relayout')?.addEventListener('click',renderSystemMap);
     $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); });
     $('#cooccurrence-download')?.addEventListener('click',()=>{ const c=$('#cooccurrence-canvas'); if(c&&c._net) c._net.clear(); downloadSvg('#cooccurrence-canvas svg','cooccurrence-network.svg'); });
-    $('#export-json').addEventListener('click',exportProject);
+    const exportMenu = $('#export-menu'), exportBtn = $('#export-json');
+    const closeExportMenu = () => { if (exportMenu) { exportMenu.hidden = true; exportBtn.setAttribute('aria-expanded', 'false'); } };
+    exportBtn.addEventListener('click', e => {
+      if (VIEWER || !exportMenu) { exportProject(); return; }
+      exportMenu.hidden = !exportMenu.hidden; exportBtn.setAttribute('aria-expanded', exportMenu.hidden ? 'false' : 'true'); e.stopPropagation();
+    });
+    $('#export-as-json')?.addEventListener('click', () => { closeExportMenu(); exportProject(); });
+    $('#export-as-html')?.addEventListener('click', () => { closeExportMenu(); exportProjectHtml(); });
+    document.addEventListener('click', e => { if (exportMenu && !exportMenu.hidden && !e.target.closest('.export-wrap')) closeExportMenu(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeExportMenu(); });
     setupUsagePopover();
     $('#import-json').addEventListener('click',()=>$('#import-json-file').click());
     $('#import-json-file').addEventListener('change',e=>{if(e.target.files[0])importProject(e.target.files[0]);e.target.value='';});
@@ -2346,9 +2479,9 @@ ${refnote}
 
   document.addEventListener('DOMContentLoaded',()=>{
     // This script is deferred; DOM is ready by the time it runs in modern browsers.
-    applyMeta(state.meta);attachEvents();renderAll();checkHealth();loadCodebook();
+    applyMeta(state.meta);attachEvents();if(VIEWER)initViewer();renderAll();if(!VIEWER)checkHealth();loadCodebook();
     const h=location.hash.slice(1);const hs=h&&document.getElementById(h);if(hs&&hs.classList.contains('page-section'))navigate(h);
     window.addEventListener('hashchange',()=>{const t=location.hash.slice(1),el=t&&document.getElementById(t);if(el&&el.classList.contains('page-section')&&!el.classList.contains('active-section'))navigate(t);});
-    if (!state.meta.search_date) { const d=new Date();$('#search-date').value=d.toISOString().slice(0,10); }
+    if (!VIEWER && !state.meta.search_date) { const d=new Date();$('#search-date').value=d.toISOString().slice(0,10); }
   });
 })();

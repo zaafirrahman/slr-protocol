@@ -550,11 +550,6 @@ body.formal .taxonomy-svg,body.formal .cooccur-svg,body.formal .system-map-canva
 @keyframes dot-blink{0%,100%{opacity:1;box-shadow:0 0 0 3px var(--pink-wash),0 0 8px var(--pink)}50%{opacity:.25;box-shadow:0 0 0 3px transparent,0 0 0 var(--pink)}}
 .private-dot{animation:dot-blink 1.4s ease-in-out infinite}
 
-/* bar peringatan fitur SLR lanjutan (tahap 05-09) */
-.wip-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin:0 0 20px;padding:12px 18px;border-radius:14px;background:#c4151c;color:#fff;font-size:13px;line-height:1.5}
-.wip-label{display:inline-flex;align-items:center;gap:10px;font:700 12px var(--display,inherit);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
-.wip-tag{display:inline-block;padding:2px 10px;border:1px solid #fff;border-radius:999px;font:600 10px var(--display,inherit);letter-spacing:.04em;text-transform:none;background:rgba(0,0,0,.25)}
-.wip-text{flex:1 1 280px;min-width:0}
 
 /* Tutorial card (hero) */
 .hero-row{display:flex;align-items:center;justify-content:space-between;gap:32px}
@@ -578,3 +573,17 @@ body.formal .taxonomy-svg,body.formal .cooccur-svg,body.formal .system-map-canva
 .net-detail h3{margin:0 0 4px;font-size:14px}.net-detail ul{margin:8px 0 0;padding-left:0;list-style:none}.net-detail li{margin-bottom:8px}.net-detail .dim{color:var(--dim)}
 .net-detail blockquote{margin:2px 0 4px;padding-left:10px;border-left:2px solid var(--line);color:var(--dim);font-style:italic}
 .net-svg .net-node,.net-svg .net-eg{transition:opacity .12s}
+/* menu Ekspor proyek (JSON / HTML) */
+.export-wrap{position:relative;display:inline-block}
+.export-menu{position:absolute;right:0;top:calc(100% + 8px);width:310px;max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--bright);padding:6px;z-index:30}
+.export-menu[hidden]{display:none}
+.export-menu button{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--bright);padding:10px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;border-radius:6px}
+.export-menu button:hover{background:var(--raised)}
+.export-menu button:disabled{opacity:.5;cursor:wait}
+.export-menu button small{display:block;color:var(--dim);font-size:11px;font-weight:400;margin-top:3px;line-height:1.4}
+/* mode hanya-baca (ekspor HTML proyek): sembunyikan pengubah data dan fitur yang butuh server */
+.viewer-banner{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin:0 0 18px;padding:12px 16px;border:1px solid var(--pink);background:var(--pink-wash);font-size:12px;line-height:1.5}
+.viewer-banner strong{color:var(--pink-soft);white-space:nowrap}
+body.is-viewer .upload-heading,body.is-viewer .upload-layout,body.is-viewer #project-form .form-footer,body.is-viewer .usage-wrap,body.is-viewer #ai-status,body.is-viewer #import-json,body.is-viewer #clear-articles,body.is-viewer #run-synthesis,body.is-viewer #synthesis .notice-blue,body.is-viewer #synthesis-progress,body.is-viewer #design-steps,body.is-viewer #norm-panel,body.is-viewer #taxonomy-retry,body.is-viewer .tutorial-card,body.is-viewer .nav-item[data-target="arah-riset"],body.is-viewer #arah-riset,body.is-viewer [data-go="overview"],body.is-viewer #global-message{display:none!important}
+body.is-viewer #project-form textarea,body.is-viewer #project-form input{cursor:default}
+@media print{.viewer-banner,.export-wrap{display:none!important}}

@@ -165,6 +165,12 @@ Status HTTP: 400 (tanpa file / terlalu banyak), 503 (AI belum dikonfigurasi), 41
   tanpa panggilan ulang; hasilnya `taxonomy_status = "partial"` + `taxonomy_note`. Status lain: `ok`, `fallback`, `failed`.
   Tombol "Buat ulang peta topik" (`#taxonomy-retry`, `retryTaxonomy`) memanggil `/api/taxonomy` supaya kegagalan taksonomi tidak
   memaksa seluruh sintesis diulang. Tes: `tests/test_json_repair.py`.
+- **Poly-hierarchy**: prompt taksonomi melarang artikel yang sama di dua kategori sejajar (aturan 3) dan menyuruh array kosong bila tak ada bukti (aturan 8),
+  sehingga `polyhierarchy` dari AI hampir selalu kosong. Bila kosong, UI memakai `derivePolyhierarchy`: konsep irisan = pasangan subkategori dari dua cabang
+  berbeda yang berbagi >= 2 artikel (induk = kedua subkategori; maks 12). Dihitung kode, diberi catatan di UI, tidak mengubah data tersimpan.
+- **Pemeriksaan taksonomi** (`taxonomyChecks`, kotak "Perlu dicek" per tab; dihitung kode, bukan AI): (1) kategori yang namanya memuat kata cara-riset
+  (validasi/benchmark/eksperimen/...) = petunjuk bahwa itu bukan topik; (2) dimensi faceted yang tidak mencakup semua artikel; (3) baris matrix yang hanya
+  mengutip sebagian artikel dari kategori padanannya (dicocokkan lewat nama).
 - **Co-occurrence** tidak lagi bergantung pada sintesis: istilah dari `topic_tags` + nama `concepts`, digabung oleh `ccCanon` (huruf besar/kecil,
   tanda hubung, ejaan optimise/optimize, akhiran framework/approach, jamak, singkatan dalam kurung). Istilah yang muncul di >=60% artikel
   disembunyikan secara default (checkbox `#cooccurrence-dominant`) karena membentuk jaringan bintang. Warna = klaster (`netCommunities`).
@@ -174,6 +180,26 @@ Status HTTP: 400 (tanpa file / terlalu banyak), 503 (AI belum dikonfigurasi), 41
   `netView` (SVG, hover/klik/seret, unduhan memakai warna literal), `scopeRefs`/`fmtRefs` (nomor jurnal sama dengan tab Desain Riset).
   `system_map` sudah dihapus dari prompt sintesis akhir (UI memakainya tidak lagi). Anggaran token sintesis akhir dinaikkan 1700 -> 2600 karena JSON-nya
   terpotong dan bagian ekor (`limitations_of_corpus`, `review_notes`) hilang saat "diperbaiki".
+
+### 4.2b Ekspor proyek (JSON atau HTML)
+
+Tombol **Ekspor proyek** membuka menu: **JSON** (backup, bisa diimpor ulang; `exportProject`) atau **HTML** (`exportProjectHtml`).
+Tombol "Ekspor laporan (HTML)" di tab Taksonomi Desain Riset (`buildDesignReport`, versi naskah/audit) tetap ada dan tidak berubah.
+
+- **Cara kerja ekspor HTML**: klien mengirim `{state, design:{article_ids, topic, normalization}}` ke `POST /api/export-html`. Server
+  (`build_project_html`) merakit satu berkas dari `templates/index.html` + `static/style.css` + `static/app.js` (di-inline; `@import` font web dibuang;
+  `</script` di-escape), menanam `window.__SLR_VIEWER__ = {state, design, codebook, generated_at, topic}` (`json_for_script` meng-escape `< > &`),
+  dan memasang CSP (`connect-src 'none'`). `design` = hasil `build_design_taxonomy` untuk cakupan yang sama dengan layar; `codebook` = `codebook_payload()`.
+- **Mode viewer** (`const VIEWER` di app.js): `loadState` membaca payload, `saveState` tidak menulis apa pun, `api()` dijawab `viewerApi`
+  (hanya `/api/design-taxonomy` dan `/api/codebook` dari payload; selain itu error), `checkHealth` dilewati, tab Arah Riset TMI tidak ikut.
+  `initViewer` mengunci formulir, memasang spanduk, dan memblokir klik/ubah pada pengubah data di fase capture. CSS `body.is-viewer ...` menyembunyikan
+  unggah PDF, jalankan sintesis, hapus artikel, normalisasi, pemakaian token, dan donasi. Select keputusan dan checkbox verifikasi dirender `disabled`.
+- **Tetap hidup di viewer**: semua tab, pencarian/filter artikel, kontrol Co-occurrence (minimum, istilah dominan, atur ulang), System Map (maksimum,
+  kelompok terbesar, hierarki), Diagram Taksonomi (pohon/sunburst, nomor jurnal, mode formal), unduh SVG/PNG, dan **Unduh data (JSON)**.
+- **Batas**: potret data saat ekspor (ekspor ulang bila data berubah); font Inter/Poppins tidak ikut (memakai font sistem); avatar kredit sidebar dibuang
+  (teks kredit tetap); berkas memuat seluruh data ekstraksi artikel seperti JSON, jadi perlakukan sama saat dibagikan.
+- **Tes**: `tests/test_export_html.py` (rute + kerapian HTML + payload), `tests/viewer_smoke.js` (menjalankan berkas hasil ekspor dengan DOM tiruan
+  `tests/dom_shim.js`, semua tab dan kontrol), `tests/live_export_smoke.js` (menu dan payload di aplikasi biasa). Semuanya bukan pengganti mencoba di browser.
 
 ### 4.2 Sintesis (`POST /api/synthesize`)
 
