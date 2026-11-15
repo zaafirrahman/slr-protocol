@@ -12,8 +12,11 @@ SLR Protocol adalah web app satu-halaman untuk systematic literature review:
    artikel, dan mengembalikannya ke browser.
 3. Pengguna menetapkan keputusan **screening** dan **full-text eligibility** secara manual.
 4. Pengguna menjalankan **sintesis**: LLM menyintesis semua artikel INCLUDE (tema, kesepakatan, kontradiksi,
-   research gap, taxonomy, system map).
-5. Frontend merender PRISMA, sintesis, taxonomy, co-occurrence, dan system map.
+   research gap) dan menyusun **peta topik** (taxonomy) lewat satu panggilan terpisah.
+5. Frontend merender PRISMA, sintesis, peta topik, co-occurrence, dan system map. **Co-occurrence dan system map dihitung kode**
+   dari data ekstraksi tiap artikel (`topic_tags`, `concepts`, `relationships`), bukan keluaran sintesis AI (bagian 4.2a).
+6. Proyek diekspor sebagai **JSON** (backup, bisa diimpor ulang) atau **HTML interaktif hanya-baca** (semua tab, grafik tetap bisa
+   dikontrol, dibuka offline; bagian 4.2b).
 
 Status: **prototype** untuk riset pribadi dan kelompok. Proyek tidak disimpan di server (tidak ada database proyek). Ada dua mode:
 
@@ -59,7 +62,7 @@ slr-protocol.bat        Peluncur Windows: git pull, .env minimal, venv, pip inst
 .gitattributes          `*.bat text eol=crlf` supaya .bat tetap CRLF setelah clone.
 .env.example            Konfigurasi bersama dan penjelasannya. Di mode terkelola SEMUA nilai terisi menjadi bawaan untuk pengguna.
 .gitignore              Mengabaikan .env, .env.tmp, .venv, venv, data/, dan berkas ekspor proyek.
-tests/                  test_routes, test_arah_riset, test_research_design, test_user_auth (python); ui_smoke, ui_report_check (node, opsional).
+tests/                  python: test_routes, test_arah_riset, test_research_design, test_user_auth, test_json_repair, test_export_html. node: ui_smoke, ui_report_check (butuh jsdom, opsional), viewer_smoke, live_export_smoke (pakai dom_shim.js buatan sendiri, tanpa npm install).
 ```
 
 Aset gambar di `static/`: `slr.png` (logo + favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit), `qris.png`
@@ -160,6 +163,20 @@ Status HTTP: 400 (tanpa file / terlalu banyak), 503 (AI belum dikonfigurasi), 41
 
 ### 4.2a Peta topik, co-occurrence, system map (SLR lanjutan)
 
+Peta fitur (tab 04 dan 05 sampai 09). Kolom "AI?" menunjukkan apakah ada panggilan model; semua yang bertanda tidak dihitung murni oleh kode.
+
+| Tab | Sumber data | AI? | Fungsi kunci di `app.js` |
+|---|---|---|---|
+| 04 Diagram Taksonomi | `POST /api/design-taxonomy` (hasil yang sama dengan tab 03) | tidak | `dg*`, `dgRefs`, `fmtRefs` (bagian 4.9) |
+| 05 PRISMA Flow | hitungan dari keputusan manual + `identifiedTotal`/`duplicateCount` | tidak | `renderPrisma` |
+| 06 Review Synthesis | `POST /api/synthesize` (batch, reduce, final) | ya | `renderSynthesis` |
+| 07 Peta Topik | `state.synthesis.taxonomy` dari `run_taxonomy`; poly dan pemeriksaan diturunkan kode | ya (satu panggilan) | `renderTaxonomy`, `topicTreeSvg`, `polyDiagram`, `derivePolyhierarchy`, `taxonomyChecks`, `retryTaxonomy` |
+| 08 Co-occurrence | `topic_tags` + nama `concepts` per artikel | tidak | `renderCooccurrence`, `ccBuild`, `ccCanon` |
+| 09 System Map | `relationships` (+ opsional `concepts.parent_concepts`) per artikel | tidak | `renderSystemMap`, `smBuild`, `SM_ROLE` |
+
+Tab 08 dan 09 **tidak membutuhkan sintesis**: cukup artikel hasil ekstraksi (artikel INCLUDE di kedua tahap; bila belum ada, semua artikel yang
+ekstraksinya berhasil, lewat `ccDocs`). Karena itu keduanya tetap muncul walaupun sintesis gagal atau belum dijalankan.
+
 - **Taksonomi** dibuat `run_taxonomy` (satu panggilan AI, dipakai `/api/synthesize` dan `POST /api/taxonomy`). `llm_json(..., salvage=True)`
   menyelamatkan JSON yang terpotong lewat `repair_truncated_json` (tutup string/array/objek, atau potong ke koma/penutup valid terakhir)
   tanpa panggilan ulang; hasilnya `taxonomy_status = "partial"` + `taxonomy_note`. Status lain: `ok`, `fallback`, `failed`.
@@ -217,7 +234,7 @@ Pipeline (semua panggilan lewat `llm_json`, jumlah langkah dihitung di awal untu
    ringkasan desain; hierarki 3 level dengan satu prinsip pengelompokan per level; hasil dirapikan oleh
    `finalize_hierarchy`: perbaikan id/parent/siklus, roll-up `article_ids`, dan `taxonomy_coverage`).
    `final_synthesis_prompt` tidak lagi meminta taksonomi. Panggilan sendiri supaya taksonomi tidak berebut batas
-   token dengan sintesis. Hasilnya `taxonomy_status` ∈ `ok` | `fallback` | `failed`. Kegagalan taksonomi tidak
+   token dengan sintesis. Hasilnya `taxonomy_status` ∈ `ok` | `partial` | `fallback` | `failed` (rincian di 4.2a). Kegagalan taksonomi tidak
    membatalkan sintesis.
 5. `filter_references()` membuang `article_ids` yang tidak ada di korpus (mencegah AI mengarang rujukan).
    `parent_ids` taksonomi dicek di frontend.
@@ -245,6 +262,8 @@ dengan baris final (token masuk/keluar, cache, detik, biaya). Retry dicatat seba
 | `GET /` | ya | Landing page (`landing.html`). |
 | `GET /app` | ya | Workspace (`index.html`). Tombol di landing mengarah ke sini; `/app#<id-tab>` membuka tab langsung. |
 | `GET /api/health` | ya | Status AI + limits (`max_files_per_batch`, `max_file_mb`, `max_text_chars`, `synth_batch_size`, `keep_server_*`) + `pricing` (periode, waktu pergantian, tarif efektif; `null` untuk Ollama). |
+| `POST /api/taxonomy` | ya | Buat ulang HANYA peta topik (satu panggilan AI) dari artikel INCLUDE + `main_themes` yang sudah ada. Body: `articles`, `main_themes`, `research_question`. Dipakai tombol "Buat ulang peta topik". Respons: `{taxonomy, taxonomy_coverage, taxonomy_status, taxonomy_note?, usage}`; gagal total → 502 `{error, usage}`. |
+| `POST /api/export-html` | ya | Merakit ekspor proyek HTML hanya-baca (bagian 4.2b). Body: `{state, design:{article_ids, topic, normalization}}`. Respons: `text/html` (tanpa cache). `state` tanpa daftar `articles` → 400. |
 | `GET /api/test-ai` | ya | Satu panggilan kecil non-streaming untuk uji koneksi/JSON; mengembalikan `usage`. |
 | `GET`/`POST /signup` | tidak | Hanya mode terkelola (`user_auth.py`). GET menampilkan form; POST mendaftar dan menulis `USER_API_KEY` ke `.env`. Bila sudah terdaftar atau mode mati, dialihkan ke `/app`. Gerbang `_gate` mengalihkan jalur lain ke sini selama key kosong (bagian 9.1). |
 
@@ -448,8 +467,8 @@ Aturan keputusan (frontend, `handleDecisionChange`): mengubah screening menjadi 
 ### 5.2 State proyek (browser)
 
 `localStorage["litreview_studio_project_v1"]` = `{articles[], identifiedTotal, duplicateCount, synthesis, meta{research_question,
-source_name, search_date, search_query, inclusion, exclusion}, usage{calls,prompt_tokens,cache_hit_tokens,
-completion_tokens,cost_usd,cost_idr,usd_to_idr}}`.
+source_name, search_date, search_query, inclusion, exclusion, guide_context}, usage{calls,prompt_tokens,cache_hit_tokens,
+completion_tokens,cost_usd,cost_idr,usd_to_idr}, designUi{topic,scope}, norm{draft,approved}}`.
 
 > **Jangan mengganti nama kunci `litreview_studio_project_v1`.** Itu kunci warisan; menggantinya membuat proyek
 > yang sudah tersimpan di browser pengguna tampak hilang. `localStorage` terikat ke origin, jadi
@@ -462,15 +481,16 @@ tetap menambah keduanya, supaya hitungan PRISMA konsisten.
 
 `research_question_refinement`, `subquestions[]`, `executive_synthesis`, `main_themes[]`, `agreements[]`,
 `contradictions[]`, `research_gaps[]`, `limitations_of_corpus[]`, `review_notes[]`, dan `taxonomy{hierarchical, faceted, flat,
-polyhierarchy, matrix}`. Metadata tambahan dari server: `taxonomy_status`, `taxonomy_note|taxonomy_error`,
-`included_article_count`, `generated_at`, `model`, `evidence_catalog`. Semua `article_ids` merujuk `record.id`.
+polyhierarchy, matrix}`. Metadata tambahan dari server: `taxonomy_status` (`ok`|`partial`|`fallback`|`failed`), `taxonomy_note|taxonomy_error`,
+`included_article_count`, `generated_at`, `model`, `evidence_catalog`. Semua `article_ids` merujuk `record.id`. Field `system_map` **tidak lagi dibuat** (System Map dibangun kode, 4.2a); ekspor lama yang masih memuatnya
+aman: UI mengabaikannya.
 
 ### 5.4 Ekspor/impor proyek
 
 Ekspor = `{format:'slr-protocol-project', version:1, exported_at, ...state}`, diunduh sebagai
 `slr-protocol-project-YYYY-MM-DD.json`. Impor hanya memvalidasi `articles` adalah array (penanda `format` tidak
 dicek, jadi ekspor lama `litreview-studio-project` tetap bisa diimpor) dan **menimpa seluruh state**. PDF tidak
-ikut diekspor.
+ikut diekspor. Ekspor HTML (4.2b) tidak bisa diimpor; datanya bisa diunduh ulang sebagai JSON dari dalam berkas HTML itu.
 
 ## 6. Lapisan provider AI (`llm_json`)
 
@@ -534,7 +554,9 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
 | Token & tarif | `renderUsage`, popup (`renderUsagePopover`, `periodBlockHtml`, `donateBlockHtml`), `refreshHealthInfo` tiap 60 dtk |
 | Visualisasi | `renderTaxonomy` (hierarchical = `topicTreeSvg`, poly = `polyDiagram`, faceted, flat, matrix), `renderCooccurrence` (`ccBuild`: `topic_tags`+`concepts`, istilah dinormalisasi `ccCanon`), `renderSystemMap` (`smBuild`: dari `relationships` per artikel, **bukan** dari `synthesis.system_map`). Ketiganya memakai mesin jaringan bersama `netLayout`/`netView` (lihat 4.2a) |
-| Backup | `exportProject`, `importProject` (`Ctrl/Cmd+Shift+O`), `downloadSvg`, cetak PRISMA |
+| Backup | `exportProject` (JSON), `importProject` (`Ctrl/Cmd+Shift+O`), `downloadSvg`, cetak PRISMA. Tombol **Ekspor proyek** membuka menu `#export-menu` (JSON atau HTML) |
+| Jaringan | `netLayout` (force-directed + tumbukan kotak, per komponen terhubung), `netView` (SVG + hover/klik/seret), `netCommunities` (klaster), `netBBox`; dipakai Co-occurrence, System Map, dan poly-hierarchy (4.2a) |
+| Ekspor HTML / mode viewer | `exportProjectHtml` (klien), `VIEWER`, `viewerApi`, `initViewer` (mode hanya-baca, 4.2b) |
 
 Hal yang perlu diingat:
 - **Batas upload dibaca dari `/api/health`** (`serverLimits`), bukan hardcode; teks di UI ikut menyesuaikan. Termasuk handler drag-and-drop pada dropzone: ia memotong ke `serverLimits.maxFiles` dan memberi toast bila ada file yang tidak ikut (dulu memotong hardcode ke 8, sehingga seret-lepas hanya mengambil 8 PDF walau batas server 20).
@@ -545,6 +567,11 @@ Hal yang perlu diingat:
   jadwal peak dikonversi ke zona waktu browser.
 - Log progres: `is-live` untuk baris yang sedang diperbarui; bar hanya mengikuti `percent` dari server.
 - `.progress-line.is-working` (garis putus-putus) aktif hanya saat `indeterminate` (menunggu respons pertama AI).
+- **Setiap kontrol baru harus dipikirkan untuk mode viewer** (ekspor HTML hanya-baca, 4.2b). Bila ia menulis `state`, memanggil API, atau butuh server:
+  sembunyikan lewat daftar `body.is-viewer ...` di `style.css` dan/atau blokir di `initViewer` (`block([...], selector)`). Bila tab hanya-baca
+  membutuhkan hasil API baru, tanam jawabannya di `build_project_html` dan layani lewat `viewerApi`; tanpa itu tab akan menampilkan galat di ekspor.
+- Disclaimer "SLR Lanjutan · Under development" (`.wip-bar`) **sudah dihapus** dari semua tab beserta CSS-nya. Jangan menambahkannya lagi tanpa diminta.
+- Tombol keluar-masuk antar tab memakai atribut `data-go` (mis. `data-go="overview"`); di mode viewer yang menuju `overview` disembunyikan.
 
 ### Tema (`static/style.css`)
 
@@ -650,11 +677,30 @@ Hal-hal berikut adalah sifat kode saat ini dan harus dipenuhi oleh lingkungan tu
 Uji UI (opsional, butuh `npm i jsdom` dan server berjalan): `node tests/ui_smoke.js http://127.0.0.1:5055 <ekspor-proyek.json|-> static/app.js` memuat halaman asli di jsdom, mengklik semua tab, dan melaporkan galat JS serta isi panel langkah. `node tests/ui_report_check.js http://127.0.0.1:5055 <ekspor-proyek.json> static/app.js` menguji end-to-end: verifikasi artikel lewat UI, pembuatan laporan, mode naskah/audit, tombol cetak, banner draf (49-53 pengecekan pada data nyata, ekspektasinya dihitung dari state proyek, bukan diasumsikan).
 
 Tes rute dan Arah Riset (tanpa jaringan): `python tests/test_arah_riset.py` dan `python tests/test_routes.py`. `test_routes.py` mengatur
-`USER_AUTH=off` sebelum mengimpor `app` supaya gerbang signup tidak mengalihkan halaman. Saat dokumen ini ditulis, satu pengecekan
-di sana (`tautan Beranda di sidebar`) gagal dan sudah gagal sebelum mode terkelola ditambahkan; belum diperbaiki.
+`USER_AUTH=off` sebelum mengimpor `app` supaya gerbang signup tidak mengalihkan halaman. Pengecekan sidebar memeriksa tautan **logo**
+(`<a href="/" class="brand" aria-label="SLR Protocol beranda">`); teks "Beranda" memang sudah dihapus dari sidebar, dan logo menjadi jalan pulang ke `/`.
+**Jalankan tiap tes di proses terpisah**: tes mengimpor `app` dengan konfigurasi env berbeda (mis. `test_user_auth.py` menguji mode terkelola dan menghapus
+`USER_AUTH`), jadi satu proses untuk beberapa tes menghasilkan kegagalan palsu (pernah teramati: `test_user_auth` gagal 3 pengecekan hanya karena `USER_AUTH=off` terbawa).
+`test_research_design.py` dan `test_arah_riset.py` tidak mengatur `USER_AUTH` sendiri: bila gagal dengan `KeyError` pada JSON respons
+(respons 401/pengalihan, bukan data), jalankan dengan `USER_AUTH=off` di lingkungan.
 Tes mode terkelola (tanpa jaringan, `_rpc` ditiru): `python tests/test_user_auth.py` (22 pengecekan: pengalihan ke `/signup`, 401 untuk `/api/*`,
 pendaftaran berhasil/gagal, penulisan `.env` tanpa merusak baris lain, key aktif tanpa restart, fallback tampil key, `HOST` bawaan,
 lapisan `.env.example`). Edge Function dan SQL **belum punya tes otomatis**; ujinya manual (bagian 9.1). Skrip jsdom memuat `/app` (bukan `/`, yang kini landing).
+
+Tes SLR lanjutan dan ekspor HTML (tanpa jaringan, tanpa API key; masing-masing mengatur `USER_AUTH=off` sendiri):
+- `python tests/test_json_repair.py` (64 pengecekan): `repair_truncated_json` pada banyak titik potong, `run_taxonomy` (status `partial`/`failed`), rute `/api/taxonomy`.
+- `python tests/test_export_html.py [proyek.json [keluar.html]]` (20 pengecekan): rute `/api/export-html`, HTML rapi (tepat dua elemen `<script>`, tanpa tag Jinja,
+  tanpa sumber eksternal yang dimuat otomatis, CSP terpasang), data tertanam sama dengan proyek, setiap `<script>` lolos `node --check`, teks artikel yang
+  berisi `</script>` tidak lolos sebagai kode. Tanpa argumen memakai proyek mini sintetis.
+- `node tests/viewer_smoke.js laporan.html` (24 pengecekan): menjalankan berkas hasil ekspor di DOM tiruan (`tests/dom_shim.js`), berpindah ke semua tab,
+  memeriksa isi render, kontrol grafik (co-occurrence, system map, nomor jurnal), dan bahwa tidak ada `fetch` atau penulisan `localStorage` proyek.
+- `node tests/live_export_smoke.js template-atau-ekspor.html proyek.json` (14 pengecekan): di aplikasi biasa, menu Ekspor proyek, payload ke
+  `/api/export-html` (artikel, sintesis, `design.article_ids` = cakupan desain), nama berkas unduhan, ekspor JSON tetap jalan, kegagalan server jadi toast.
+- `dom_shim.js` membangun DOM tiruan dari markup berkas itu sendiri. Ia **bukan browser**: tata letak, CSS, dan klik sungguhan tetap perlu dicoba manual
+  (lihat daftar periksa di bawah). Alur penuh yang pernah dijalankan: `live_export_smoke` → simpan payload → `POST /api/export-html` → `viewer_smoke`.
+
+Daftar periksa manual sebelum merilis perubahan UI SLR lanjutan: buka ekspor HTML di browser (file://), klik semua tab, coba kontrol Co-occurrence dan
+System Map, seret satu simpul, unduh SVG, dan pastikan tidak ada galat di konsol.
 
 Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
@@ -720,6 +766,18 @@ Urut kira-kira berdasarkan dampak:
 21. **Proxy dan skema Supabase tidak ikut `git pull`** dan belum punya tes otomatis maupun versi/migrasi. Perubahan perlu deploy manual.
 22. **Ketergantungan Supabase free plan.** Proyek bisa di-pause saat lama tidak aktif (aplikasi pengguna gagal daftar/memanggil AI sampai diaktifkan lagi); saldo DeepSeek admin dipakai bersama semua pengguna.
 23. **`.env.example` langsung berlaku ke semua pengguna** begitu mereka menjalankan `slr-protocol.bat` lagi; tidak ada tahap uji bertahap. Aplikasi yang sedang terbuka tidak ikut berubah sampai dimulai ulang.
+24. **Co-occurrence bukan VOSviewer.** Garis berarti dua istilah muncul bersama dalam artikel yang sama, bukan hubungan sebab-akibat. Istilah berasal dari
+    `topic_tags` dan `concepts` hasil ekstraksi AI, jadi mutunya mengikuti mutu ekstraksi. Penggabungan istilah (`ccCanon`) heuristik: bisa terlalu longgar
+    atau terlalu ketat. Klaster memakai label propagation (bukan modularity VOSviewer), jadi pembagiannya bisa berbeda. Istilah yang muncul di >=60% artikel
+    disembunyikan secara default (hanya bila artikel >= 4). Batas tampilan: 45 istilah dan 140 hubungan terkuat.
+25. **Panah System Map = klaim artikel**, bukan bukti kausal. Datanya `relationships` hasil ekstraksi AI per artikel; entitas digabung `ccCanon`. Peran simpul
+    (asal/perantara/tujuan) murni dari arah panah. Tata letak deterministik tetapi bukan yang paling rapi; tiap kelompok terhubung ditata sendiri lalu disusun berbaris.
+26. **Peta topik tetap usulan AI.** Bila JSON-nya terpotong, bagian ekor dibuang dan status menjadi `partial` (cek cakupan). Konsep irisan di tab Poly-hierarchical
+    dihitung kode (bukan klaim AI) dari artikel yang sama di dua cabang. `taxonomyChecks` memakai kata kunci pada nama kategori, jadi bisa salah menandai atau
+    melewatkan; pencocokan baris matrix dengan kategori lewat nama.
+27. **Ekspor HTML adalah potret hanya-baca.** Ekspor ulang bila data berubah. Font Inter/Poppins tidak ikut, tab Arah Riset TMI tidak ikut, avatar kredit dibuang.
+    Berkas memuat seluruh data ekstraksi (seperti JSON): perhatikan hak cipta dan privasi sebelum dibagikan. Ukurannya naik mengikuti data (±610 KB untuk 20 artikel).
+    Diuji dengan DOM tiruan, bukan browser sungguhan.
 
 ## 12. Panduan perubahan cepat
 
@@ -739,6 +797,12 @@ Urut kira-kira berdasarkan dampak:
 | Mengubah perilaku proxy (batas, model, pencatatan) | `supabase/functions/llm-proxy/index.ts` lalu deploy ulang manual; cek Verify JWT masih mati |
 | Mengubah halaman pendaftaran | `templates/signup.html` (CSS inline, tema sama dengan landing); pesan galat di `ERRORS` dalam `user_auth.py` |
 | Mengganti nama atau isi peluncur Windows | `slr-protocol.bat` (CRLF; hindari tanda `)` pada teks `echo` di dalam blok `( ... )`; panggil `git` dengan `call`) lalu perbarui teks `slr-protocol.bat` di landing, `signup.html`, README |
+| Mengubah apa yang disembunyikan atau dikunci di ekspor HTML | daftar `body.is-viewer ...` di `style.css`, `initViewer` (`block`, kunci formulir) di `app.js`; data server yang dibutuhkan tab hanya-baca di `build_project_html` + `viewerApi` |
+| Mengubah menu atau isi ekspor proyek | `#export-menu` di `index.html`, `exportProject`, `exportProjectHtml`, rute `/api/export-html`, `build_project_html` |
+| Mengubah penggabungan istilah, klaster, atau peran simpul jaringan | `ccCanon`, `ccBuild`, `netCommunities`, `smBuild`, `SM_ROLE` |
+| Mengubah tata letak atau tampilan grafik jaringan | `netLayout`/`netView`; parameter per grafik ada di `renderCooccurrence`, `renderSystemMap`, `polyDiagram` |
+| Mengubah poly-hierarchy turunan atau pemeriksaan "Perlu dicek" | `derivePolyhierarchy`, `taxonomyChecks`, `TX_HOW` (kata kunci cara-riset) |
+| Mengubah penanganan JSON AI yang terpotong | `repair_truncated_json`, parameter `salvage` pada `llm_json`, `run_taxonomy` |
 
 ## 13. Konvensi untuk kontributor
 
@@ -752,3 +816,5 @@ Urut kira-kira berdasarkan dampak:
 - Perubahan di `.env.example`, `slr-protocol.bat`, dan kode langsung sampai ke semua pengguna saat mereka menjalankan peluncur; uji di clone bersih sebelum push.
 - Jalankan pemeriksaan di bagian 10 sebelum commit. Hindari mengubah kunci `localStorage` dan skema record artikel
   tanpa jalur migrasi (data pengguna ada di browser mereka dan di file ekspor).
+- Perubahan fitur yang terlihat pengguna: perbarui **README.md** (cara pakai, pemecahan masalah, keterbatasan) dan **CLAUDE.md** (alur, fungsi kunci, keterbatasan,
+  panduan perubahan) di commit yang sama. Pertimbangkan juga dampaknya pada mode viewer ekspor HTML (bagian 4.2b).

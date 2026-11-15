@@ -2,7 +2,8 @@
 
 Workspace web untuk systematic literature review (SLR). Kamu mengunggah PDF jurnal, AI mengekstrak data
 terstruktur dari tiap artikel, kamu memutuskan INCLUDE/EXCLUDE secara manual, lalu AI menyintesis seluruh
-artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan istilah, dan system map.
+artikel yang lolos menjadi tema, kontradiksi, research gap, dan peta topik (taxonomy). Jaringan co-occurrence dan system map
+dihitung langsung dari data ekstraksi tiap artikel, tanpa AI tambahan.
 
 - **Backend:** Python + Flask (satu berkas, `app.py`).
 - **Frontend:** HTML/CSS/JavaScript biasa, tanpa framework dan tanpa build step.
@@ -23,8 +24,15 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
   awal selalu `pending` sampai kamu menetapkannya.
 - Dua tahap verifikasi manual: screening judul/abstrak dan full-text eligibility. Sintesis hanya memakai artikel
   yang **INCLUDE di kedua tahap**.
-- PRISMA flow, review synthesis (tema, kesepakatan, kontradiksi, research gap), lima bentuk taxonomy
-  (hierarchical, poly-hierarchical, faceted, flat, matrix), jaringan co-occurrence, dan system map (unduh SVG).
+- PRISMA flow dan review synthesis (tema, kesepakatan, kontradiksi, research gap).
+- **Peta topik** dalam lima bentuk (hierarchical, poly-hierarchical, faceted, flat, matrix). Bila AI tidak mengisi poly-hierarchical,
+  aplikasi menghitung konsep irisan dari artikel yang sama di dua cabang. Kotak **Perlu dicek** menandai ketidakkonsistenan (kategori
+  yang tampaknya tentang cara riset, dimensi yang tidak mencakup semua artikel, sel matrix yang hanya mengutip sebagian artikel).
+  Bila pembuatan peta topik gagal, tombol **Buat ulang peta topik** mengulang hanya bagian itu (satu panggilan AI), bukan seluruh sintesis;
+  respons AI yang terpotong diselamatkan sebagian.
+- **Co-occurrence** (jaringan istilah: istilah sama digabung, klaster berwarna, istilah dominan bisa disembunyikan) dan **System map**
+  (hubungan antarkonsep yang dinyatakan artikel, klik panah untuk melihat kutipan buktinya). Keduanya bisa diseret, difilter, dan diunduh sebagai
+  SVG. Dihitung kode dari hasil ekstraksi: tanpa AI tambahan dan tanpa biaya token.
 - **Desain riset (research onion):** tiap artikel diberi label metodologi, strategi, sumber data, dan time horizon
   (berikut basis dinyatakan/disimpulkan dan kutipan yang diverifikasi ke PDF), disusun menjadi taksonomi desain riset
   dan matriks metodologi × strategi. Nama dan keluarga teknik dinormalisasi lewat usulan AI yang kamu setujui; editor
@@ -34,12 +42,14 @@ artikel yang lolos menjadi tema, kontradiksi, research gap, taxonomy, jaringan i
   kategori yang diturunkan dari tesis TMI terdahulu; hasilnya topik umum, research question, query ScienceDirect/Scopus, dan
   kriteria inklusi/eksklusi. Tanpa AI dan tanpa biaya token. Hasilnya arah awal, bukan topik final.
 - **Diagram taksonomi:** hasil taksonomi desain riset divisualkan sebagai pohon yang bisa dibuka/ditutup atau sunburst, dengan detail
-  artikel per simpul dan unduhan SVG/PNG (opsional latar terang untuk dicetak). Tanpa AI dan tanpa biaya token.
+  artikel per simpul, tombol **№ Nomor jurnal** (menampilkan nomor rujukan artikel di tiap simpul; nomornya sama dengan tab Taksonomi Desain Riset),
+  dan unduhan SVG/PNG (opsional latar terang untuk dicetak). Tanpa AI dan tanpa biaya token.
 - **Progres live** untuk analisis dan sintesis: persen berdasarkan langkah yang benar-benar selesai, log per
   panggilan AI (token, durasi, biaya), serta catatan retry bila jawaban terpotong.
 - **Popup pemakaian token** (klik chip token di pojok kanan atas): token, jumlah panggilan, estimasi biaya
   USD/Rupiah, status tarif **peak/off-peak** DeepSeek, dan tombol reset.
-- Ekspor/impor proyek JSON (impor: `Ctrl/Cmd + Shift + O`), cetak PRISMA.
+- **Ekspor proyek** dalam dua bentuk: **JSON** (backup, bisa diimpor ulang dengan `Ctrl/Cmd + Shift + O`) atau **HTML interaktif** (semua tab, grafik
+  tetap bisa dikontrol, dibuka offline, hanya-baca). Cetak PRISMA.
 
 ## Prasyarat
 
@@ -179,10 +189,12 @@ Detail arsitektur, keamanan, dan batasannya ada di [`CLAUDE.md`](CLAUDE.md) bagi
 3. Di tab **Artikel**, periksa hasil ekstraksi dan tetapkan keputusan screening, lalu keputusan full-text.
 4. Buka **Review Synthesis** dan jalankan sintesis **sekali di akhir** (setiap sintesis memproses ulang semua
    artikel INCLUDE dan menambah biaya).
-5. Periksa PRISMA, taxonomy, co-occurrence, dan system map.
+5. Periksa PRISMA, peta topik, co-occurrence, dan system map. Cara membaca tiap tab ada di
+   [SLR lanjutan](#slr-lanjutan-cara-membaca-tiap-tab) di bawah.
 6. (Opsional) Buka **Taksonomi Desain Riset** dan rapikan nama serta keluarga teknik; langkahnya ada di
    [Normalisasi teknik](#normalisasi-teknik-taksonomi-desain-riset) di bawah.
-7. **Ekspor proyek** secara berkala. Mengubah keputusan artikel menghapus hasil sintesis lama, jadi sintesis
+7. **Ekspor proyek** secara berkala: **JSON** untuk backup, **HTML** untuk laporan interaktif
+   ([detail](#ekspor-proyek-json-atau-html)). Mengubah keputusan artikel menghapus hasil sintesis lama, jadi sintesis
    perlu dijalankan ulang.
 
 ### Normalisasi teknik (Taksonomi Desain Riset)
@@ -216,6 +228,71 @@ Catatan:
   artikelnya keliru, itu berasal dari ekstraksi dan perlu dianalisis ulang.
 - Usulan AI bisa berbeda antar run, termasuk soal apa yang dibuang. Periksa draf sebelum menyetujui.
 
+### SLR lanjutan: cara membaca tiap tab
+
+Systematic literature review (SLR) adalah cara membaca literatur yang **bisa diulang orang lain**, bukan sekadar artikel yang kebetulan ditemui.
+Tab PRISMA menjawab *artikel mana yang masuk dan kenapa*; tab sesudahnya menjawab *apa isinya dan bagaimana polanya*. Semua hasil di bawah
+adalah alat bantu memahami dan menyusun: periksa klaim penting ke artikel aslinya, karena penguji bisa menunjuk satu klaim dan bertanya "dari mana?".
+
+**05 PRISMA Flow.** Diagram alir seleksi artikel (standar pelaporan PRISMA 2020), dengan empat kotak: *Identification* (artikel yang ditemukan dan duplikat),
+*Screening* (judul/abstrak), *Eligibility* (teks lengkap), dan *Included* (yang lolos semua tahap). Angkanya berasal dari keputusan manualmu, jadi setiap
+angka harus bisa kamu jelaskan ("20 ditemukan, 3 gugur karena tidak sesuai kriteria eksklusi"). Gunanya: transparansi seleksi untuk bagian metodologi dan
+perlindungan dari tuduhan memilih artikel yang cocok dengan kesimpulan saja.
+
+**06 Review Synthesis.** AI merangkum lintas artikel INCLUDE: tema utama, hal yang **disepakati** (relatif aman jadi dasar argumen), hal yang **bertentangan**
+(paling berharga untuk pembahasan), dan **research gap** (alasan penelitianmu perlu ada). Bahan mentah untuk tinjauan pustaka. Ini keluaran AI: cek setiap klaim
+ke artikelnya sebelum dikutip.
+
+**07 Peta Topik.** Mengelompokkan artikel menurut *apa yang diteliti* (cara riset dilakukan ada di Taksonomi Desain Riset). Lima bentuk memandang
+kumpulan artikel yang sama dengan struktur berbeda:
+
+| Bentuk | Struktur | Dipakai untuk |
+|---|---|---|
+| **Hierarchical** | Pohon bertingkat, tiap konsep satu induk. Angka di kotak = jumlah artikel; `[1, 9, 11]` = nomor artikelnya | Kerangka subbab tinjauan pustaka |
+| **Poly-hierarchical** | Konsep boleh punya beberapa induk. Bila AI tidak mengisinya, konsep irisan (×) dihitung kode: pasangan subkategori dari dua cabang berbeda yang berbagi minimal 2 artikel | Konsep yang lintas kategori (mis. metode × domain) |
+| **Faceted** | Beberapa dimensi sejajar; tiap artikel punya nilai di tiap dimensi | Mengklasifikasi dari beberapa sudut sekaligus |
+| **List / Flat** | Daftar kategori setara, tanpa tingkat | Gambaran cepat |
+| **Matrices** | Tabel silang baris × kolom berisi ringkasan | Membandingkan antar kelompok |
+
+Kotak **Perlu dicek** muncul bila kode menemukan ketidakkonsistenan: kategori yang namanya memuat kata cara-riset (validasi, benchmark, eksperimen, ...),
+dimensi faceted yang tidak mencakup semua artikel, atau baris matrix yang hanya mengutip sebagian artikel dari kategori padanannya. Itu petunjuk untuk diperiksa,
+bukan vonis. Bila muncul **"Peta topik parsial"**, respons AI terpotong dan hanya bagian utuhnya yang dipakai; periksa cakupan atau klik **Buat ulang peta topik**.
+
+**08 Co-occurrence.** Jaringan istilah yang **muncul bersama dalam artikel yang sama**. Lingkaran = istilah (ukuran = jumlah artikel), garis = muncul bersama
+(tebal = sering), warna = klaster (istilah yang sering berkumpul). Kontrol: *Minimum kemunculan*; *Sembunyikan istilah dominan* (aktif secara bawaan: istilah di
+>= 60% artikel, biasanya kata kunci pencarianmu sendiri, terhubung ke semuanya sehingga jaringan berbentuk bintang tanpa informasi); *Atur ulang tata letak*.
+Klik istilah untuk melihat artikelnya, seret untuk memindahkan. Gunanya melihat struktur bidang secara objektif; klaster terpencil menandakan topik niche. **Garis
+bukan hubungan sebab-akibat**, dan ini bukan ekspor VOSviewer; bila skripsimu menyebut VOSviewer, jalankan VOSviewer sungguhan.
+
+**09 System Map.** Peta hubungan antarkonsep **yang dinyatakan artikel** (panah dari asal ke tujuan). Warna kotak berasal dari posisi di jaringan, bukan penilaian AI:
+*Asal hubungan* (hanya menunjuk keluar, mis. metode atau faktor), *Perantara* (menerima dan meneruskan), *Tujuan hubungan* (hanya ditunjuk, mis. hasil).
+Kontrol: *Konsep maksimum*, *Hanya kelompok terbesar*, *Sertakan hierarki konsep* (garis biru induk-turunan). Klik konsep untuk melihat hubungan masuk dan keluarnya;
+**klik panah untuk melihat kutipan asli dari artikel dan nomornya**. Hubungan yang didukung banyak artikel lebih kuat daripada satu artikel. Gunanya menyusun kerangka
+konseptual. **Panah artinya "artikel ini menyatakan hubungan tersebut", bukan bukti kausal.**
+
+Co-occurrence dan System Map berasal dari hasil ekstraksi tiap artikel (`topic_tags`, `concepts`, `relationships`), jadi **tidak membutuhkan sintesis**. Bila kosong
+atau sedikit, periksa apakah artikelnya sudah INCLUDE dan ekstraksi PDF-nya berhasil.
+
+### Ekspor proyek: JSON atau HTML
+
+Klik **Ekspor proyek** lalu pilih bentuknya.
+
+| | JSON | HTML |
+|---|---|---|
+| Untuk | Backup dan pindah komputer | Laporan interaktif untuk dibaca, dibagikan, atau dibuka tanpa aplikasi |
+| Bisa diimpor ulang | Ya (`Ctrl/Cmd + Shift + O`) | Tidak langsung; di dalam HTML ada tombol **Unduh data (JSON)** |
+| Interaktif | - | Ya: semua tab, kontrol Co-occurrence dan System Map, diagram taksonomi, unduh SVG/PNG |
+
+Tentang ekspor HTML:
+- Berisi **seluruh tab** (Ikhtisar, Artikel, Taksonomi Desain Riset, Diagram Taksonomi, PRISMA, Review Synthesis, Peta Topik, Co-occurrence, System Map) kecuali Arah Riset TMI.
+  Tampilan dan perilaku grafiknya memakai kode yang sama dengan aplikasi.
+- **Hanya-baca**: unggah PDF, jalankan sintesis, hapus artikel, ubah keputusan, normalisasi, dan pemakaian token disembunyikan atau dikunci. Untuk mengubah data,
+  unduh JSON dari HTML itu lalu impor ke aplikasi.
+- Dibuka langsung di browser tanpa server dan tanpa internet. Font memakai font sistem.
+- **Potret**: isinya data saat diekspor. Ekspor ulang bila data berubah.
+- Memuat **seluruh data ekstraksi artikel**, sama seperti JSON. Pikirkan hak cipta dan privasi sebelum membagikannya.
+- Tombol **Ekspor laporan (HTML)** di tab Taksonomi Desain Riset tetap ada: laporan naskah/audit yang berfokus pada desain riset (bisa dicetak ke PDF).
+
 ### Di mana datamu disimpan
 
 - Proyek (artikel, keputusan, sintesis, penghitung token) ada di `localStorage` browser, **per alamat**:
@@ -225,11 +302,12 @@ Catatan:
 - Salinan PDF/JSON di server bersifat opsional dan **mati secara bawaan**
   (`KEEP_SERVER_PDFS`, `KEEP_SERVER_JSON`); aplikasi tidak membacanya kembali.
 - Mode terkelola: Supabase hanya menyimpan akun dan catatan token (lihat bagian admin di atas), bukan proyekmu.
+- **Ekspor HTML** memuat seluruh isi proyek (termasuk hasil ekstraksi artikel) di dalam berkasnya; perlakukan seperti file JSON saat membagikannya.
 
 ## Aset gambar
 
 Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit),
-`qris.png` (QRIS pada popup token, kotaknya menyembunyikan diri bila gambar tidak ada), dan `slr.ico` (ikon untuk shortcut Windows).
+`qris.png` (QRIS pada popup token, kotaknya menyembunyikan diri bila gambar tidak ada), dan `slr.ico` (ikon untuk shortcut Windows). Ekspor HTML hanya membawa logo; avatar credit dan QRIS tidak ikut.
 
 ## Pemecahan masalah
 
@@ -248,6 +326,13 @@ Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `l
 | 401 "API key tidak dikenal" | `USER_API_KEY` di `.env` salah salin atau akunnya dihapus; hubungi admin |
 | 403 "Akun kamu dinonaktifkan" | Akun diblokir admin |
 | Jendela hitam `slr-protocol.bat` langsung tertutup | Jalankan lewat `cmd` (ketik `slr-protocol.bat` di folder aplikasi) supaya pesan errornya terbaca. Pembaruan `git pull` juga gagal bila kamu mengubah file kode |
+| "Sintesis berhasil, tetapi taxonomy belum berhasil dibuat" | Respons AI untuk peta topik gagal (umumnya terpotong). Klik **Buat ulang peta topik** (satu panggilan, tanpa mengulang sintesis). Bila berulang, naikkan `LLM_OUTPUT_SCALE` atau cek `/api/test-ai` |
+| Banner "Peta topik parsial" | Respons AI terpotong dan bagian akhirnya dibuang. Periksa cakupan artikel, atau klik **Buat ulang peta topik** |
+| Tab Poly-hierarchical berisi konsep bertanda × | Konsep irisan yang dihitung kode karena AI tidak mengisi poly-hierarchical; bukan klaim AI |
+| Co-occurrence berbentuk bintang, atau terlalu sedikit istilah | Pastikan **Sembunyikan istilah dominan** aktif; turunkan **Minimum kemunculan** ke 1 bila istilahnya terlalu sedikit |
+| System Map kosong | Belum ada hubungan pada hasil ekstraksi artikel INCLUDE. Periksa keputusan INCLUDE dan analisis ulang PDF bila relasinya kosong |
+| Ekspor HTML tidak bisa mengubah data | Memang hanya-baca. Unduh JSON dari HTML itu lalu impor ke aplikasi |
+| Ekspor HTML gagal, atau fitur baru tidak tampil | Restart aplikasi lalu refresh paksa (Ctrl+F5); ekspor dirakit dari berkas aplikasi yang sedang berjalan |
 
 ## Keterbatasan dan integritas akademik
 
@@ -261,6 +346,11 @@ Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `l
 - AI dapat salah mengekstrak, menyimpulkan hubungan yang tidak didukung, atau melewatkan konteks.
 - Normalisasi teknik: pengelompokan dan daftar yang dibuang bisa berubah antar run, dan tanda ⚠ hanya membandingkan label
   metode artikel, bukan sifat tekniknya. Keduanya membantu pemeriksaan, bukan penilaian akhir.
+- Peta topik adalah usulan AI (kebenaran pengelompokan tidak diukur). Konsep irisan di poly-hierarchical dihitung kode, dan kotak **Perlu dicek** memakai kata kunci
+  sehingga bisa salah menandai atau melewatkan.
+- Co-occurrence dan System Map berasal dari hasil ekstraksi AI per artikel, jadi mutunya mengikuti mutu ekstraksi. Garis co-occurrence = muncul bersama, panah
+  system map = klaim artikel; keduanya **bukan bukti sebab-akibat**. Co-occurrence bukan VOSviewer.
+- Ekspor HTML adalah potret hanya-baca yang diuji dengan DOM tiruan, belum di semua browser; coba dulu di browser yang akan kamu pakai.
 - Dengan DeepSeek, teks artikel dikirim ke server pihak ketiga (di mode terkelola lewat proxy admin lebih dulu). Jangan
   unggah materi rahasia atau yang tidak boleh dibagikan.
 - Ini prototype untuk penggunaan riset. Akun di mode terkelola hanya untuk pencatatan token dan pemblokiran, bukan
@@ -283,9 +373,29 @@ slr-protocol.bat        peluncur Windows (pull, venv, pip, jalankan, buka browse
 requirements.txt        dependensi Python
 .env.example            konfigurasi bersama: bawaan untuk semua pengguna di mode terkelola, contoh di mode mandiri
 .gitattributes          memaksa akhir baris Windows (CRLF) untuk file .bat
-tests/                  tes otomatis logika murni dan alur backend (tanpa jaringan)
+tests/                  tes otomatis (python dan node): logika murni, alur backend, penyelamat JSON, dan ekspor HTML (tanpa jaringan)
 CLAUDE.md               dokumentasi teknis end-to-end
 ```
+
+## Menjalankan tes
+
+Semua tanpa jaringan dan tanpa API key. Dari folder aplikasi:
+
+```bash
+python tests/test_routes.py
+python tests/test_arah_riset.py
+python tests/test_research_design.py
+python tests/test_user_auth.py
+python tests/test_json_repair.py                       # penyelamat JSON terpotong dan peta topik
+python tests/test_export_html.py proyek.json hasil.html   # ekspor HTML (argumen opsional)
+node tests/viewer_smoke.js hasil.html                  # menjalankan ekspor HTML di DOM tiruan
+node tests/live_export_smoke.js hasil.html proyek.json # menu Ekspor proyek dan payload di aplikasi biasa
+```
+
+Jalankan **tiap tes sebagai perintah terpisah** (satu proses per tes): masing-masing mengatur variabel lingkungan berbeda sebelum mengimpor `app` (mis. `test_user_auth.py`
+menguji mode terkelola), sehingga menjalankannya dalam satu proses bisa memberi kegagalan palsu. Bila `test_research_design.py` atau `test_arah_riset.py` gagal dengan
+`KeyError`, jalankan dengan `USER_AUTH=off` di lingkungan. Tes `node` memakai DOM
+tiruan, **bukan browser**: tata letak, CSS, dan klik sungguhan tetap perlu dicoba manual. Daftar tes dan isinya ada di [`CLAUDE.md`](CLAUDE.md) bagian 10.
 
 ## Referensi
 

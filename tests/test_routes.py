@@ -29,7 +29,7 @@ check(r.status_code == 200 and 'id="overview"' in html, "/app = workspace")
 check('class="page-section active-section"' not in html.replace('id="overview" class="page-section active-section"', ""), "hanya Ikhtisar yang aktif di awal")
 for tab in ("arah-riset", "design-diagram", "overview", "articles", "design", "prisma", "synthesis", "taxonomy", "cooccurrence", "system-map"):
     check(f'data-target="{tab}"' in html and f'id="{tab}"' in html, f"tab {tab}: tombol dan section")
-check('href="/"' in html and "Beranda" in html, "tautan Beranda di sidebar")
+check('<a href="/" class="brand"' in html and 'aria-label="SLR Protocol beranda"' in html, "logo SLR di sidebar menaut ke beranda (/); teks 'Beranda' memang sudah dihapus")
 check(c.get("/static/landing.css").status_code == 200, "landing.css terlayani")
 print(f"{ok} lolos, {fail} gagal")
 sys.exit(1 if fail else 0)
