@@ -49,7 +49,7 @@ app.py                  Backend Flask. Config, provider AI, progres, biaya, prom
 templates/index.html    Satu halaman Jinja (hanya url_for untuk gambar). Semua tab ada di sini.
 static/app.js           Frontend: IIFE tunggal, state, render, upload, progres, popup token, ekspor/impor.
 static/style.css        Tema terminal (monokrom, font mono, variabel CSS).
-templates/landing.html  Landing page (halaman depan di `/`). Berdiri sendiri; CSS-nya `static/landing.css`, TIDAK memuat style.css.
+templates/landing.html  Landing page (halaman depan di `/`). Berdiri sendiri; CSS-nya `static/landing.css`, TIDAK memuat style.css. Urutan: hero (daftar 10 tab), statistik, **Tur hasil** (carousel 8 slide), Fitur (9 kartu), Alur kerja (4 langkah), Bisa ditelusuri, Prinsip, FAQ, CTA.
 static/landing.css      Gaya landing saja. Tema terminal yang SAMA dengan workspace, tetapi `:root` disalin (bukan di-import): ubah warna/font di `style.css` = ubah juga di sini.
 arah_riset.py          Langkah 0 (khusus TMI ITB): mesin pertanyaan dan generator topik/RQ/query/kriteria. Murni komputasi, tanpa AI.
 arah_riset_data/        thesis_facets.json (facet tesis TMI) + vocab_en.json (istilah query bahasa Inggris). BUKAN di data/ karena data/ di-gitignore.
@@ -440,10 +440,19 @@ Desain Riset: tanpa AI, tanpa biaya token). Kode di `app.js`, blok "Diagram taks
   terpasang di komputer pembuka, jatuh ke monospace lain.
 - **Navigasi hash**: `navigate()` menulis `#<id>` ke URL (`history.replaceState`), dan saat load/`hashchange` halaman dibuka dari hash. Berlaku untuk
   semua tab, mis. `/app#design-diagram` atau `/app#arah-riset`. Tanpa hash, tampilan pertama tetap Ikhtisar.
-- Landing (`/`) bertema terminal sama dengan workspace. Dua ilustrasi diagramnya (pohon dan sunburst) adalah SVG statis berisi data contoh
-  generik, digambar dengan aturan yang sama dengan `dgBuild` (palet `DG_BRANCH`/`DG_PAL`, simpul persegi, font IBM Plex Mono). Ilustrasi itu
-  TIDAK dihasilkan dari kode saat runtime, jadi gambar ulang manual bila tampilan diagram berubah; legenda warna di bagian "Diagram
-  taksonomi" juga harus ikut.
+- **Landing (`/`)** bertema terminal sama dengan workspace dan harus menceritakan seluruh alur (bukan hanya desain riset dan diagram). Bagian utamanya
+  adalah **Tur hasil**: carousel 8 slide (ekstraksi dan keputusan, PRISMA, sintesis, peta topik, co-occurrence, system map, diagram taksonomi, ekspor HTML).
+  - **Ilustrasi** adalah 8 SVG inline statis berisi data contoh generik (7 digambar baru, sunburst dipakai ulang). Warna mengikuti aplikasi: palet jaringan
+    (`NET_PAL`), warna peran system map (`SM_ROLE`), pohon peta topik (`topicTreeSvg`), dan aturan `dgBuild` untuk sunburst. Ilustrasi **TIDAK dihasilkan dari
+    kode saat runtime** dan tidak ada generatornya di repo: bila tampilan fitur berubah, gambar ulang manual (edit SVG di `landing.html`) dan perbarui teks slide dan
+    legenda warna di slide diagram. Setiap SVG punya `aria-label` yang menjelaskan isinya.
+  - **Carousel**: `#tour` > `.tour-track` > N `.slide` (satu `article` per slide) dan N `.tour-dot` di `.tour-nav`. Penggeserannya scroll-snap native CSS (bisa digeser
+    tanpa JS); skrip inline kecil di akhir `landing.html` hanya menambah tombol, titik, penghitung, dan keyboard (panah, Home, End), dan menghormati `prefers-reduced-motion`.
+    Menambah slide: tambah `article.slide`, tambah `.tour-dot`, ubah teks `1 / N`, dan ubah angka 8 di `tests/test_routes.py`.
+  - **Akurasi klaim**: setiap pernyataan di landing harus benar terhadap aplikasi. Contoh yang dijaga: statistik "0 token" hanya untuk co-occurrence, system map, dan diagram
+    (sintesis dan peta topik memakai token); co-occurrence bukan VOSviewer; panah system map bukan bukti kausal; ekspor HTML hanya-baca. Angka pada ilustrasi adalah contoh.
+  - Tes: `tests/test_routes.py` (8 slide dan 8 titik, tautan navigasi, 8 SVG, tanpa Jinja tersisa) dan `node tests/landing_tour_smoke.js` (logika carousel). Tampilan sungguhan
+    (tata letak, responsif, gestur geser di layar sentuh) hanya bisa diperiksa di browser.
 
 ## 5. Model data
 
@@ -696,6 +705,7 @@ Tes SLR lanjutan dan ekspor HTML (tanpa jaringan, tanpa API key; masing-masing m
   memeriksa isi render, kontrol grafik (co-occurrence, system map, nomor jurnal), dan bahwa tidak ada `fetch` atau penulisan `localStorage` proyek.
 - `node tests/live_export_smoke.js template-atau-ekspor.html proyek.json` (14 pengecekan): di aplikasi biasa, menu Ekspor proyek, payload ke
   `/api/export-html` (artikel, sintesis, `design.article_ids` = cakupan desain), nama berkas unduhan, ekspor JSON tetap jalan, kegagalan server jadi toast.
+- `node tests/landing_tour_smoke.js` (15 pengecekan): logika carousel landing (tombol, titik, keyboard, batas awal/akhir, `prefers-reduced-motion`) dengan DOM tiruan kecil; membaca `templates/landing.html`.
 - `dom_shim.js` membangun DOM tiruan dari markup berkas itu sendiri. Ia **bukan browser**: tata letak, CSS, dan klik sungguhan tetap perlu dicoba manual
   (lihat daftar periksa di bawah). Alur penuh yang pernah dijalankan: `live_export_smoke` → simpan payload → `POST /api/export-html` → `viewer_smoke`.
 
@@ -789,7 +799,7 @@ Urut kira-kira berdasarkan dampak:
 | Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py`. Untuk semua pengguna mode terkelola: ubah di `.env.example` (atau bawaan di kode), lalu push |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
 | Mengubah kategori/istilah query Arah Riset | `arah_riset_data/vocab_en.json` (istilah, urutan = prioritas), `arah_riset.py` (`RQ_TEMPLATE`, kriteria, `max_ops`) |
-| Mengubah tampilan landing | `templates/landing.html` + `static/landing.css` (terpisah dari workspace; `:root`-nya salinan dari `style.css`) |
+| Mengubah tampilan atau isi landing | `templates/landing.html` + `static/landing.css` (terpisah dari workspace; `:root`-nya salinan dari `style.css`). Ilustrasi tur = SVG inline di `landing.html` (digambar manual); carousel = `#tour` + skrip inline di akhir berkas; jaga angka 8 slide di `tests/test_routes.py` |
 | Menambah tab/halaman | `index.html` (tombol `data-target` + `section.page-section`), `navigate`/`renderAll` di `app.js` |
 | Mengubah tema | variabel `:root` di `style.css` + warna SVG di `app.js` |
 | Menambah kredensial/rahasia | `.env` mandiri, atau secret Supabase untuk proxy; jangan pernah commit nilainya dan jangan taruh di `.env.example` |

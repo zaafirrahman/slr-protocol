@@ -364,7 +364,7 @@ user_auth.py            mode terkelola: gerbang /signup, tulis USER_API_KEY ke .
 arah_riset.py           Arah Riset (langkah 0, khusus TMI ITB)
 arah_riset_data/        data facet tesis dan kosakata query
 templates/index.html    workspace (semua tab)
-templates/landing.html  landing page di `/`
+templates/landing.html  landing page di `/` (hero, tur hasil 8 slide yang bisa digeser, fitur, alur kerja, FAQ)
 templates/signup.html   halaman pendaftaran (mode terkelola)
 static/                 app.js, style.css, landing.css, gambar, slr.ico
 supabase/schema.sql     tabel, RLS, dan fungsi (jalankan di SQL Editor Supabase)
@@ -390,6 +390,7 @@ python tests/test_json_repair.py                       # penyelamat JSON terpoto
 python tests/test_export_html.py proyek.json hasil.html   # ekspor HTML (argumen opsional)
 node tests/viewer_smoke.js hasil.html                  # menjalankan ekspor HTML di DOM tiruan
 node tests/live_export_smoke.js hasil.html proyek.json # menu Ekspor proyek dan payload di aplikasi biasa
+node tests/landing_tour_smoke.js                       # logika carousel di landing page
 ```
 
 Jalankan **tiap tes sebagai perintah terpisah** (satu proses per tes): masing-masing mengatur variabel lingkungan berbeda sebelum mengimpor `app` (mis. `test_user_auth.py`
