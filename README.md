@@ -67,7 +67,7 @@ dihitung langsung dari data ekstraksi tiap artikel, tanpa AI tambahan.
 
 Aktif bila `SUPABASE_URL` dan `SUPABASE_ANON_KEY` terisi di `.env.example` (admin yang mengisinya).
 
-**Sekali di awal**
+**Sekali di awal.**
 
 1. Pasang Python 3.12 (centang "Add Python to PATH") dan Git.
 2. Buka terminal lalu jalankan `git clone <URL_REPO>`.
