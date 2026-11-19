@@ -15,7 +15,7 @@ let okN = 0, failN = 0; const check = (c, m) => { if (c) okN++; else { failN++; 
   check(/hanya-baca/.test(String(document.querySelector('.private-card').innerHTML)), 'kartu sidebar diganti keterangan hanya-baca');
   const rowsAt = () => (g('articles-body').innerHTML.match(/<tr/g) || []).length;
   check(rowsAt() >= 1, 'tabel artikel terisi saat boot');
-  for (const id of ['articles', 'prisma', 'synthesis', 'taxonomy', 'design', 'design-diagram', 'cooccurrence', 'system-map']) await go(id);
+  for (const id of ['articles', 'prisma', 'synthesis', 'taxonomy', 'design', 'design-diagram', 'cooccurrence', 'extraction-matrix', 'literature-map', 'system-map']) await go(id);   // 'cooccurrence' = alias lama
   const S = JSON.parse(JSON.stringify(win.__SLR_VIEWER__.state)), nArt = S.articles.length;
   check(rowsAt() >= nArt, `tabel artikel memuat ${nArt} baris (ada ${rowsAt()} <tr)`);
   check(!/<select[^>]*data-field="screening_decision"(?![^>]*disabled)/.test(g('articles-body').innerHTML), 'select screening semuanya disabled');
@@ -27,6 +27,17 @@ let okN = 0, failN = 0; const check = (c, m) => { if (c) okN++; else { failN++; 
   check(/<svg/.test(g('dg-canvas')._html) && /<path|<rect|<circle/.test(g('dg-canvas')._html), 'Diagram Taksonomi (pohon) tergambar');
   check(/<svg/.test(g('cooccurrence-canvas')._html) && /<circle/.test(g('cooccurrence-canvas')._html), 'Co-occurrence tergambar');
   check(/<svg/.test(g('system-map-canvas')._html) && /net-node/.test(g('system-map-canvas')._html), 'System Map tergambar');
+  // Matriks ekstraksi (4 kolom: Author, Method, Object, Findings) dan co-authorship
+  const mx = g('matrix-content')._html;
+  check(/<th>Author<\/th><th>Method<\/th><th>Object<\/th><th>Findings<\/th>/.test(mx) && (mx.match(/<tr>/g) || []).length >= 2, 'Matriks ekstraksi: 4 kolom dan baris terisi');
+  check(/mx-toggle/.test(mx) && /source-chip/.test(mx), 'Matriks ekstraksi: teks ringkas bisa dibuka dan ada label teknik');
+  g('matrix-filter').value = 'zzzz-tidak-ada'; call('matrix-filter', 'input'); await wait();
+  check(/Tidak ada baris/.test(g('matrix-content')._html), 'Matriks ekstraksi: pencarian tanpa hasil ditangani');
+  g('matrix-filter').value = ''; call('matrix-filter', 'input'); await wait();
+  check(/<svg/.test(g('coauthor-canvas')._html) && /net-node/.test(g('coauthor-canvas')._html), 'Co-authorship tergambar');
+  g('coauthor-min').value = '1'; call('coauthor-min', 'change'); await wait();
+  check(/<svg/.test(g('coauthor-canvas')._html), 'co-authorship: minimum artikel per penulis 1 tetap tergambar');
+  check(!document.getElementById('dg-svg') && !document.getElementById('cooccurrence-download'), 'tombol unduh SVG sudah tidak ada (PNG saja)');
   // kontrol grafik tetap hidup
   const cc0 = g('cooccurrence-canvas')._html;
   g('cooccurrence-dominant').checked = false; call('cooccurrence-dominant', 'change'); await wait();

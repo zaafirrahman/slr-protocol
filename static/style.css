@@ -168,9 +168,9 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 .diagram-legend{margin-top:20px;padding-top:14px;border-top:1px dashed var(--line)}
 
 /* taxonomy + maps */
-.taxonomy-tabs{display:flex;flex-wrap:wrap;gap:0;margin-bottom:12px;border:1px solid var(--line);max-width:max-content}
-.taxonomy-tab{border:0;border-right:1px solid var(--line);background:transparent;color:var(--text);padding:8px 14px;font-size:12px}.taxonomy-tab:last-child{border-right:0}
-.taxonomy-tab:hover{background:var(--raised)}.taxonomy-tab.active{background:var(--bright);color:var(--bg);font-weight:700}
+.taxonomy-tabs,.lm-tabs{display:flex;flex-wrap:wrap;gap:0;margin-bottom:12px;border:1px solid var(--line);max-width:max-content}
+.taxonomy-tab,.lm-tab{border:0;border-right:1px solid var(--line);background:transparent;color:var(--text);padding:8px 14px;font-size:12px}.taxonomy-tab:last-child,.lm-tab:last-child{border-right:0}
+.taxonomy-tab:hover,.lm-tab:hover{background:var(--raised)}.taxonomy-tab.active,.lm-tab.active{background:var(--bright);color:var(--bg);font-weight:700}
 .taxonomy-panel{padding:20px;min-height:240px}.taxonomy-title{font-size:15px;margin:0 0 6px}.taxonomy-help{font-size:12px;color:var(--dim);margin:0 0 14px}
 .taxonomy-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .taxonomy-item,.poly-node{border:1px solid var(--line-soft);background:var(--bg);padding:14px}
@@ -232,7 +232,7 @@ td{padding:12px;border-bottom:1px dashed var(--line-soft);vertical-align:top;fon
 @media(max-width:540px){
 .topbar{height:52px}.breadcrumb{font-size:11px}.status-pill{font-size:10px;padding:2px 6px}.page-wrap{padding:18px 12px}.project-form{padding:14px;grid-template-columns:1fr}.field-wide,.form-footer{grid-column:auto}
 .form-footer,.upload-actions,.filter-row,.map-toolbar,.app-footer{flex-direction:column;align-items:stretch}.form-footer .button,.upload-actions .button{width:100%}.section-note{display:none}
-.metric-card>strong{font-size:26px}.taxonomy-list,.prisma-final-row{grid-template-columns:1fr}.taxonomy-tabs{max-width:100%;overflow-x:auto;flex-wrap:nowrap}.taxonomy-tab{white-space:nowrap}
+.metric-card>strong{font-size:26px}.taxonomy-list,.prisma-final-row{grid-template-columns:1fr}.taxonomy-tabs,.lm-tabs{max-width:100%;overflow-x:auto;flex-wrap:nowrap}.taxonomy-tab,.lm-tab{white-space:nowrap}
 .prisma-row{grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);gap:4px}.prisma-stage{padding:8px}.prisma-stage strong{font-size:19px}.notice{flex-direction:column;gap:4px}
 .usage-popover{position:fixed;left:12px;right:12px;top:60px;width:auto;max-width:none}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -480,9 +480,9 @@ td{border-bottom:1px solid var(--line-soft)}
 .diagram-legend{border-top:1px solid var(--line-soft)}
 
 /* taksonomi + peta */
-.taxonomy-tabs{padding:4px;gap:4px;border-radius:999px;border-color:var(--line)}
-.taxonomy-tab,.taxonomy-tab:last-child{border:0;border-radius:999px;padding:7px 16px;font-weight:500}
-.taxonomy-tab.active{background:var(--pink);color:#000;font-weight:600}
+.taxonomy-tabs,.lm-tabs{padding:4px;gap:4px;border-radius:999px;border-color:var(--line)}
+.taxonomy-tab,.taxonomy-tab:last-child,.lm-tab,.lm-tab:last-child{border:0;border-radius:999px;padding:7px 16px;font-weight:500}
+.taxonomy-tab.active,.lm-tab.active{background:var(--pink);color:#000;font-weight:600}
 .taxonomy-item,.poly-node{border-radius:12px}
 .facet-column{border-radius:12px;overflow:hidden}
 .facet-head{background:var(--pink);color:#000;font-family:var(--display)}
@@ -587,3 +587,21 @@ body.formal .taxonomy-svg,body.formal .cooccur-svg,body.formal .system-map-canva
 body.is-viewer .upload-heading,body.is-viewer .upload-layout,body.is-viewer #project-form .form-footer,body.is-viewer .usage-wrap,body.is-viewer #ai-status,body.is-viewer #import-json,body.is-viewer #clear-articles,body.is-viewer #run-synthesis,body.is-viewer #synthesis .notice-blue,body.is-viewer #synthesis-progress,body.is-viewer #design-steps,body.is-viewer #norm-panel,body.is-viewer #taxonomy-retry,body.is-viewer .tutorial-card,body.is-viewer .nav-item[data-target="arah-riset"],body.is-viewer #arah-riset,body.is-viewer [data-go="overview"],body.is-viewer #global-message{display:none!important}
 body.is-viewer #project-form textarea,body.is-viewer #project-form input{cursor:default}
 @media print{.viewer-banner,.export-wrap{display:none!important}}
+
+/* Peta literatur (tab) dan Matriks ekstraksi */
+.lm-tab{font-family:inherit;cursor:pointer}
+.field-inline input[type=search]{width:190px;border:1px solid var(--line);background:var(--bg);padding:4px 8px;color:var(--bright);border-radius:10px}
+.mx-wrap{max-height:none}
+.mx-table{min-width:880px;table-layout:fixed}
+.mx-table th:nth-child(1){width:44px}.mx-table th:nth-child(2){width:19%}.mx-table th:nth-child(3){width:27%}.mx-table th:nth-child(4){width:22%}
+.mx-table td{vertical-align:top;line-height:1.5;word-wrap:break-word;overflow-wrap:anywhere}
+.mx-table td:first-child{text-align:center;color:var(--dim)}
+.mx-title{font-size:10px;margin-top:4px;font-weight:400}
+.mx-chips{margin:0 0 6px}
+.mx-text{font-size:11px}
+.mx-full{display:none}.mx-full ul{margin:0;padding-left:16px}.mx-full li{margin-bottom:4px}
+.mx-cell.open .mx-full,.mx-open-all .mx-full{display:block}
+.mx-cell.open .mx-short,.mx-open-all .mx-short{display:none}
+.mx-open-all .mx-toggle{display:none}
+.mx-toggle{margin-top:4px;padding:0;border:0;background:none;color:var(--info);font-size:10px;cursor:pointer;text-decoration:underline;font-family:inherit}
+.mx-toggle:hover{color:var(--bright)}

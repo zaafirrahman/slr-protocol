@@ -30,9 +30,10 @@
       <nav class="side-nav" aria-label="Tahap SLR lanjutan">
         <button class="nav-item" data-target="prisma"><span class="nav-icon">05</span> PRISMA Flow</button>
         <button class="nav-item" data-target="synthesis"><span class="nav-icon">06</span> Review Synthesis</button>
-        <button class="nav-item" data-target="taxonomy"><span class="nav-icon">07</span> Peta Topik</button>
-        <button class="nav-item" data-target="cooccurrence"><span class="nav-icon">08</span> Co-occurrence</button>
-        <button class="nav-item" data-target="system-map"><span class="nav-icon">09</span> System Map</button>
+        <button class="nav-item" data-target="extraction-matrix"><span class="nav-icon">07</span> Matriks Ekstraksi</button>
+        <button class="nav-item" data-target="taxonomy"><span class="nav-icon">08</span> Peta Topik</button>
+        <button class="nav-item" data-target="literature-map"><span class="nav-icon">09</span> Peta Literatur</button>
+        <button class="nav-item" data-target="system-map"><span class="nav-icon">10</span> System Map</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="private-card"><span class="private-dot"></span><div><strong>Workspace pribadi</strong><small>Data proyek tersimpan di browser ini</small></div></div>
@@ -160,6 +161,12 @@
           <div id="synthesis-output" class="hidden"></div>
         </section>
 
+        <section id="extraction-matrix" class="page-section">
+          <div class="section-heading page-title-row"><div><p class="eyebrow">EXTRACTION MATRIX</p><h1>Matriks ekstraksi</h1><p class="page-subtitle">Poin kunci tiap artikel dalam satu tabel: penulis, metode, objek, dan temuan. Bahan untuk menyusun taksonomi awal.</p></div><div class="design-actions"><button class="button button-secondary" id="matrix-csv" type="button" title="Teks lengkap, UTF-8. Untuk Excel gunakan tombol Excel di sebelahnya.">Unduh CSV ↗</button><button class="button button-secondary" id="matrix-xlsx" type="button">Unduh Excel ↗</button></div></div>
+          <div class="notice notice-warm"><strong>Asal isi tabel</strong><span>Semua kolom diambil langsung dari hasil ekstraksi tiap artikel, tanpa AI tambahan dan tanpa token. <b>Method</b> = label teknik (memakai hasil normalisasi teknik yang sudah disetujui, bila ada) ditambah uraian metode; <b>Object</b> = konteks/objek penelitian; <b>Findings</b> = temuan utama. Teks panjang dipotong dan bisa dibuka lewat “selengkapnya”. Berkas CSV/Excel selalu memuat teks lengkap. Verifikasi isinya terhadap artikel asli sebelum dikutip.</span></div>
+          <div class="panel system-map-panel"><div class="map-toolbar"><span id="matrix-meta">Belum ada data</span><span class="net-controls"><label class="field-inline">Cari <input type="search" id="matrix-filter" placeholder="penulis, teknik, objek…" autocomplete="off"></label><button type="button" class="button button-quiet button-small" id="matrix-expand" aria-pressed="false">Buka semua teks</button></span></div><div id="matrix-content" class="matrix-wrap mx-wrap"><div class="empty-state">Unggah dan ekstraksi artikel terlebih dahulu.</div></div></div>
+        </section>
+
         <section id="taxonomy" class="page-section">
           <div class="section-heading page-title-row"><div><p class="eyebrow">PETA TOPIK</p><h1>Peta topik</h1><p class="page-subtitle">Pengelompokan studi menurut apa yang diteliti (domain, masalah, peran prediksi). Dihasilkan AI dari Review Synthesis; bukan taksonomi desain riset.</p></div><button class="button button-secondary" data-go="synthesis">Lihat sintesis ↗</button></div>
           <div class="taxonomy-tabs" role="tablist"><button class="taxonomy-tab active" data-taxonomy="hierarchical">01 / Hierarchical</button><button class="taxonomy-tab" data-taxonomy="poly">02 / Poly-hierarchical</button><button class="taxonomy-tab" data-taxonomy="faceted">03 / Faceted</button><button class="taxonomy-tab" data-taxonomy="flat">04 / List · Flat</button><button class="taxonomy-tab" data-taxonomy="matrix">05 / Matrices</button></div>
@@ -191,7 +198,6 @@
               <div class="dg-seg" role="group" aria-label="Lipatan cabang"><button type="button" class="dg-seg-btn" id="dg-expand" title="Buka semua cabang dan tampilkan semua teknik">Expand</button><button type="button" class="dg-seg-btn" id="dg-collapse" title="Ciutkan cabang">Collapse</button></div>
               <button type="button" class="button button-quiet button-small formal-btn" id="dg-refs" aria-pressed="false" title="Tampilkan nomor jurnal pada setiap simpul (nomor sama dengan tab Desain Riset). Berlaku juga untuk unduhan.">№ Nomor jurnal</button>
               <button type="button" class="button button-quiet button-small formal-btn" id="formal-toggle" aria-pressed="false" title="Latar putih tanpa warna, untuk naskah formal. Berlaku juga untuk unduhan.">◐ Mode formal</button>
-              <button type="button" class="button button-small" id="dg-svg">Unduh SVG ↗</button>
               <button type="button" class="button button-small" id="dg-png">Unduh PNG ↗</button>
             </div>
           </div>
@@ -202,16 +208,29 @@
           </div>
         </section>
 
-        <section id="cooccurrence" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">KEYWORD NETWORK ANALYSIS</p><h1>Co-occurrence analysis</h1><p class="page-subtitle">Peta kemunculan bersama kata kunci/konsep antarartikel, terinspirasi alur kerja VOSviewer.</p></div><button class="button button-secondary" id="cooccurrence-download">Unduh network SVG ↗</button></div>
-          <div class="notice notice-warm"><strong>Interpretasi</strong><span>Garis menghubungkan istilah yang muncul bersama pada artikel yang sama. Ketebalan garis menunjukkan frekuensi co-occurrence dalam korpus yang tersedia; ini bukan bukti hubungan kausal. Istilah sama diberi warna sama (klaster), ukuran lingkaran = jumlah artikel. Klik istilah untuk melihat artikelnya, seret untuk memindahkan. Hasil ini merupakan visualisasi native website, bukan ekspor resmi VOSviewer.</span></div>
-          <div class="panel system-map-panel"><div class="map-toolbar"><span id="cooccurrence-meta">Jalankan sintesis untuk membangun jaringan istilah.</span><span class="net-controls"><label class="field-inline">Minimum kemunculan <select id="cooccurrence-min"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label><label class="field-inline net-check" title="Istilah yang muncul di ≥60% artikel (biasanya kata kunci pencarian) menghubungi hampir semua istilah lain dan membuat jaringan berbentuk bintang"><input type="checkbox" id="cooccurrence-dominant" checked> Sembunyikan istilah dominan</label><button type="button" class="button button-quiet button-small" id="cooccurrence-relayout" title="Susun ulang tata letak (membatalkan posisi hasil seretan)">Atur ulang tata letak</button></span></div><div id="cooccurrence-canvas" class="system-map-canvas"><div class="empty-state">Jaringan co-occurrence akan tampil setelah sintesis berhasil dilakukan.</div></div></div>
-          <div id="cooccurrence-legend" class="map-node-legend"></div>
-          <div id="cooccurrence-detail" class="panel net-detail hidden"></div>
+        <section id="literature-map" class="page-section">
+          <div class="section-heading page-title-row"><div><p class="eyebrow">LITERATURE MAPPING</p><h1>Peta literatur</h1><p class="page-subtitle">Tiga sudut pandang pada korpus: istilah yang muncul bersama, kolaborasi penulis, dan sitasi antarartikel. Visualisasi native website, terinspirasi alur kerja VOSviewer.</p></div><button class="button button-secondary" id="litmap-download" type="button">Unduh PNG ↗</button></div>
+          <div class="lm-tabs" role="tablist" aria-label="Jenis peta literatur"><button class="lm-tab active" data-lm="cooc" role="tab" aria-selected="true">01 / Co-occurrence map</button><button class="lm-tab" data-lm="coauth" role="tab" aria-selected="false">02 / Co-authorship map</button><button class="lm-tab" data-lm="cite" role="tab" aria-selected="false">03 / Citation graph</button></div>
+          <div class="lm-pane" data-lm-pane="cooc">
+            <div class="notice notice-warm"><strong>Interpretasi</strong><span>Garis menghubungkan istilah yang muncul bersama pada artikel yang sama. Ketebalan garis menunjukkan frekuensi co-occurrence dalam korpus yang tersedia; ini bukan bukti hubungan kausal. Istilah sama diberi warna sama (klaster), ukuran lingkaran = jumlah artikel. Klik istilah untuk melihat artikelnya, seret untuk memindahkan. Hasil ini merupakan visualisasi native website, bukan ekspor resmi VOSviewer.</span></div>
+            <div class="panel system-map-panel"><div class="map-toolbar"><span id="cooccurrence-meta">Jalankan sintesis untuk membangun jaringan istilah.</span><span class="net-controls"><label class="field-inline">Minimum kemunculan <select id="cooccurrence-min"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label><label class="field-inline net-check" title="Istilah yang muncul di ≥60% artikel (biasanya kata kunci pencarian) menghubungi hampir semua istilah lain dan membuat jaringan berbentuk bintang"><input type="checkbox" id="cooccurrence-dominant" checked> Sembunyikan istilah dominan</label><button type="button" class="button button-quiet button-small" id="cooccurrence-relayout" title="Susun ulang tata letak (membatalkan posisi hasil seretan)">Atur ulang tata letak</button></span></div><div id="cooccurrence-canvas" class="system-map-canvas"><div class="empty-state">Jaringan co-occurrence akan tampil setelah sintesis berhasil dilakukan.</div></div></div>
+            <div id="cooccurrence-legend" class="map-node-legend"></div>
+            <div id="cooccurrence-detail" class="panel net-detail hidden"></div>
+          </div>
+          <div class="lm-pane hidden" data-lm-pane="coauth">
+            <div class="notice notice-warm"><strong>Interpretasi</strong><span>Tiap lingkaran adalah satu penulis (ukuran = jumlah artikel di korpus). Garis menghubungkan penulis yang menulis artikel yang sama; ketebalan = jumlah artikel bersama. Nama disamakan ke satu bentuk (mis. “J. Han” dan “Jiliang Han” dianggap orang yang sama bila tidak ambigu), dan penulis yang sama tidak digandakan. Bila satu penulis ada di beberapa artikel, kelompok-kelompoknya otomatis tersambung lewat penulis itu. Klik penulis untuk melihat artikelnya, seret untuk memindahkan. Ini bukan ekspor resmi VOSviewer.</span></div>
+            <div id="coauthor-note" class="notice notice-blue hidden"></div>
+            <div class="panel system-map-panel"><div class="map-toolbar"><span id="coauthor-meta">Belum ada data</span><span class="net-controls"><label class="field-inline">Minimum artikel per penulis <select id="coauthor-min"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label><label class="field-inline">Penulis maksimum <select id="coauthor-max"><option value="60">60</option><option value="120" selected>120</option><option value="250">250</option><option value="9999">Semua</option></select></label><button type="button" class="button button-quiet button-small" id="coauthor-relayout" title="Susun ulang tata letak (membatalkan posisi hasil seretan)">Atur ulang tata letak</button></span></div><div id="coauthor-canvas" class="system-map-canvas"><div class="empty-state">Peta co-authorship akan tampil setelah artikel diekstraksi.</div></div></div>
+            <div id="coauthor-legend" class="map-node-legend"></div>
+            <div id="coauthor-detail" class="panel net-detail hidden"></div>
+          </div>
+          <div class="lm-pane hidden" data-lm-pane="cite">
+            <div class="panel"><div class="empty-state"><strong>Citation graph belum tersedia.</strong><br>Grafik sitasi memerlukan daftar pustaka tiap artikel, sedangkan ekstraksi saat ini membuang daftar pustaka sebelum teks dikirim ke AI. Tahap ini dikerjakan belakangan.</div></div>
+          </div>
         </section>
 
         <section id="system-map" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">RELATIONSHIP MAPPING</p><h1>System map</h1><p class="page-subtitle">Peta konsep, faktor, konteks, dan outcome beserta hubungan yang didukung bukti.</p></div><button class="button button-secondary" id="system-map-download">Unduh SVG ↗</button></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">RELATIONSHIP MAPPING</p><h1>System map</h1><p class="page-subtitle">Peta konsep, faktor, konteks, dan outcome beserta hubungan yang didukung bukti.</p></div><button class="button button-secondary" id="system-map-download">Unduh PNG ↗</button></div>
           <div class="notice notice-warm"><strong>Baca peta secara kritis</strong><span>Panah menunjukkan hubungan yang diekstrak dari tiap artikel terpilih (field relationships), digabung menurut istilah yang sama, tanpa AI tambahan. Klik konsep atau panah untuk melihat kutipan bukti; seret untuk memindahkan. Diagram konseptual tidak membuktikan hubungan sebab-akibat.</span></div>
           <div class="panel system-map-panel"><div class="map-toolbar"><span id="system-map-meta">Belum ada system map</span><span class="net-controls"><label class="field-inline">Konsep maksimum <select id="system-map-max"><option value="25">25</option><option value="40" selected>40</option><option value="70">70</option><option value="9999">Semua</option></select></label><label class="field-inline net-check"><input type="checkbox" id="system-map-main"> Hanya kelompok terbesar</label><label class="field-inline net-check" title="Tambahkan garis biru untuk hubungan induk-turunan konsep"><input type="checkbox" id="system-map-hier"> Sertakan hierarki konsep</label><button type="button" class="button button-quiet button-small" id="system-map-relayout">Atur ulang tata letak</button></span></div><div id="system-map-canvas" class="system-map-canvas"><div class="empty-state">System map akan tampil setelah sintesis berhasil dilakukan.</div></div></div>
           <div id="system-map-legend" class="map-node-legend"></div>

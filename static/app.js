@@ -344,12 +344,14 @@
     if (showToast) toast('Konfigurasi review tersimpan.', 'success');
   }
 
+  const NAV_ALIAS = {cooccurrence: 'literature-map'};   // tautan lama /app#cooccurrence tetap bekerja
   function navigate(target) {
+    target = NAV_ALIAS[target] || target;
     if (!target || !$('#' + target)) return;
     if (VIEWER && target === 'arah-riset') return;   // Arah Riset TMI bukan bagian dari data proyek
     $$('.page-section').forEach(section => section.classList.toggle('active-section', section.id === target));
     $$('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.target === target));
-    const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', 'design-diagram':'Diagram Taksonomi', cooccurrence:'Co-occurrence', 'system-map':'System Map'};
+    const labels = {'arah-riset':'Arah Riset', overview:'Ikhtisar', articles:'Artikel', prisma:'PRISMA Flow', synthesis:'Review Synthesis', taxonomy:'Peta Topik', design:'Taksonomi Desain Riset', 'design-diagram':'Diagram Taksonomi', 'extraction-matrix':'Matriks Ekstraksi', 'literature-map':'Peta Literatur', 'system-map':'System Map'};
     $('#breadcrumb-current').textContent = labels[target] || target;
     window.scrollTo({top:0, behavior:'smooth'});
     try { history.replaceState(null, '', '#' + target); } catch (_) { /* abaikan */ }
@@ -359,7 +361,8 @@
     if (target === 'taxonomy') renderTaxonomy();
     if (target === 'design') renderDesign();
     if (target === 'design-diagram') renderDesignDiagram();
-    if (target === 'cooccurrence') renderCooccurrence();
+    if (target === 'extraction-matrix') renderMatrix();
+    if (target === 'literature-map') setLitTab(activeLitTab);
     if (target === 'system-map') renderSystemMap();
     if (target === 'synthesis') renderSynthesis();
   }
@@ -793,6 +796,232 @@
     const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
     legend.innerHTML = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span style="background:${NET_PAL[c % NET_PAL.length]}"></span>Klaster ${c + 1} · ${ns.length} istilah: ${esc(ns.slice(0, 3).map(n => n.label).join(', '))}${ns.length > 3 ? '…' : ''}</span>`).join('');
     meta.innerHTML = `${docs.length} artikel · ${nodes.length} istilah · ${B.edges.length} hubungan · ${groups.size} klaster${B.hidden.length ? ` · disembunyikan karena muncul di ≥60% artikel: <b>${esc(B.hidden.map(o => o.label).join(', '))}</b>` : ''}`;
+  }
+
+  // ---- Unduhan PNG (semua ekspor gambar memakai PNG; SVG tidak lagi ditawarkan) ----
+  function topicSlug() {
+    return String((state.designUi || {}).topic || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'proyek';
+  }
+  function saveBlob(blob, filename) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function svgToPng(svgText, W, H, filename) {
+    const scale = Math.min(2, 8000 / Math.max(W, H, 1)), img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = Math.round(W * scale); c.height = Math.round(H * scale);
+      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => { if (b) { saveBlob(b, filename); toast('PNG diunduh.', 'success'); } else toast('Gagal membuat PNG.', 'error'); }, 'image/png');
+    };
+    img.onerror = () => toast('Gagal membuat PNG.', 'error');
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+  }
+  function downloadNetPng(canvasSel, base) {
+    const canvas = $(canvasSel), svg = canvas && canvas.querySelector('svg');
+    if (!svg) { toast('Belum ada peta untuk diunduh.', 'error'); return; }
+    if (canvas._net) canvas._net.clear();
+    const clone = svg.cloneNode(true); clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const vb = String(clone.getAttribute('viewBox') || '').split(/\s+/).map(Number), W = vb[2] || 900, H = vb[3] || 600;
+    clone.removeAttribute('style'); clone.setAttribute('width', W); clone.setAttribute('height', H);
+    svgToPng(formalizeSvg(new XMLSerializer().serializeToString(clone)), W, H, `${base}-${topicSlug()}.png`);
+  }
+
+  // ---- Peta literatur: tiga tab dalam satu halaman (co-occurrence, co-authorship, citation) ----
+  let activeLitTab = 'cooc';
+  function setLitTab(tab) {
+    activeLitTab = ['cooc', 'coauth', 'cite'].includes(tab) ? tab : 'cooc';
+    $$('.lm-tab').forEach(b => { const on = b.dataset.lm === activeLitTab; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
+    $$('.lm-pane').forEach(p => p.classList.toggle('hidden', p.dataset.lmPane !== activeLitTab));
+    const dl = $('#litmap-download'); if (dl) dl.classList.toggle('hidden', activeLitTab === 'cite');
+    if (activeLitTab === 'cooc') renderCooccurrence(); else if (activeLitTab === 'coauth') renderCoauthor();
+  }
+
+  // ---- Co-authorship: penulis sebagai simpul, garis = artikel bersama. Dihitung kode dari `authors`, tanpa AI ----
+  const CA_SUFFIX = new Set(['jr', 'sr', 'ii', 'iii', 'iv']);
+  const caFold = x => String(x == null ? '' : x).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  function caParse(raw) {
+    let s = String(raw == null ? '' : raw).replace(/\([^)]*\)/g, ' ').replace(/[*†‡§¶‖#]|\d+/g, '').replace(/\s+/g, ' ').trim();
+    if (!s) return null;
+    let first, last;
+    if (s.includes(',')) { const parts = s.split(',').map(x => x.trim()); last = parts[0]; first = parts.slice(1).join(' '); }
+    else {
+      const t = s.split(' '); while (t.length > 1 && CA_SUFFIX.has(caFold(t[t.length - 1]))) t.pop();
+      if (t.length > 1 && /^[A-Z]{1,3}\.?$/.test(t[t.length - 1])) { first = t.pop().replace(/\./g, ''); last = t.join(' '); }   // gaya "Han J" / "Han JL"
+      else { last = t.pop(); first = t.join(' '); }
+    }
+    const lastKey = caFold(last), ft = caFold(first).split(/[\s-]+/).filter(Boolean);
+    if (!lastKey) return null;
+    const f0 = ft[0] || '';
+    return {lastRaw: last, last: lastKey, first: f0, initial: f0.slice(0, 1), full: f0.length > 1, display: first ? `${first} ${last}`.trim() : last};
+  }
+  function caBuild(docs, min, maxN) {
+    const recs = docs.map(a => ({a, names: list((a.extraction || a).authors).map(caParse).filter(Boolean)}));
+    const fullIdx = new Map();   // "belakang|inisial" -> himpunan kunci nama lengkap
+    recs.forEach(r => r.names.forEach(p => { if (!p.full) return; const g = p.last + '|' + p.initial; if (!fullIdx.has(g)) fullIdx.set(g, new Set()); fullIdx.get(g).add(p.last + '|' + p.first); }));
+    // Nama berinisial ("J. Han") digabung ke nama lengkap hanya bila tepat satu kandidat; bila ambigu dibiarkan terpisah
+    const keyOf = p => { if (p.full) return p.last + '|' + p.first; const g = p.last + '|' + p.initial, s = fullIdx.get(g); return s && s.size === 1 ? [...s][0] : g; };
+    const people = new Map(), pairs = new Map(); let noAuth = 0;
+    recs.forEach(r => {
+      const ks = new Set();
+      r.names.forEach(p => {
+        const k = keyOf(p); let o = people.get(k); if (!o) people.set(k, o = {key: k, names: new Map(), docs: new Set()});
+        o.names.set(p.display, (o.names.get(p.display) || 0) + 1); o.docs.add(r.a.id); ks.add(k);
+      });
+      if (!ks.size) noAuth++;
+      const arr = [...ks]; for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) { const k = [arr[i], arr[j]].sort().join('\u0001'); pairs.set(k, (pairs.get(k) || 0) + 1); }
+    });
+    const deg = new Map(); pairs.forEach((w, k) => k.split('\u0001').forEach(x => deg.set(x, (deg.get(x) || 0) + 1)));
+    people.forEach(o => { o.label = [...o.names.entries()].sort((p, q) => q[0].length - p[0].length || q[1] - p[1])[0][0]; o.n = o.docs.size; });
+    const all = [...people.values()], keep = all.filter(o => o.n >= min).sort((a, b) => b.n - a.n || (deg.get(b.key) || 0) - (deg.get(a.key) || 0) || a.label.localeCompare(b.label)).slice(0, maxN);
+    const ks = new Set(keep.map(o => o.key));
+    const edges = [...pairs.entries()].map(([k, w]) => { const [a, b] = k.split('\u0001'); return {a, b, w}; }).filter(e => ks.has(e.a) && ks.has(e.b)).sort((p, q) => q.w - p.w);
+    return {keep, edges, total: all.length, repeat: all.filter(o => o.n >= 2).length, noAuth};
+  }
+  function renderCoauthor() {
+    const canvas = $('#coauthor-canvas'); if (!canvas) return;
+    const meta = $('#coauthor-meta'), legend = $('#coauthor-legend'), detail = $('#coauthor-detail'), note = $('#coauthor-note');
+    detail.classList.add('hidden'); legend.innerHTML = ''; note.classList.add('hidden');
+    const docs = ccDocs();
+    if (!docs.length) { canvas.innerHTML = '<div class="empty-state">Belum ada artikel hasil ekstraksi. Unggah dan ekstraksi PDF terlebih dahulu.</div>'; meta.textContent = 'Belum ada data'; return; }
+    const min = Number($('#coauthor-min')?.value || 1), maxN = Number($('#coauthor-max')?.value || 120);
+    const B = caBuild(docs, min, maxN), refs = scopeRefs();
+    if (!B.keep.length) {
+      canvas.innerHTML = `<div class="empty-state">${B.total ? 'Belum ada penulis yang muncul di ≥ ' + min + ' artikel. Turunkan minimum menjadi 1.' : 'Data penulis tidak ditemukan pada artikel ini.'}</div>`;
+      meta.textContent = `${docs.length} artikel diperiksa`; return;
+    }
+    if (B.repeat === 0) { note.innerHTML = '<strong>Catatan</strong><span>Belum ada penulis yang muncul di lebih dari satu artikel, jadi tiap artikel membentuk kelompok sendiri. Bila nanti ada penulis yang sama di beberapa artikel, kelompok-kelompoknya otomatis tersambung lewat penulis itu.</span>'; note.classList.remove('hidden'); }
+    const max = Math.max(...B.keep.map(o => o.n)), byKey = new Map(B.keep.map(o => [o.key, o]));
+    const nodes = B.keep.map(o => { const lines = netLines(o.label, 22, 2); return {id: o.key, kind: 'circle', r: +(5 + 8 * Math.sqrt(o.n / max)).toFixed(1), label: o.label, lines, lw: Math.max(...lines.map(l => l.length)) * 5.9, lh: lines.length * 12 + 6, fs: 11, o, tip: `${o.label} — ${o.n} artikel`}; });
+    const cl = netCommunities(nodes, B.edges), nById = new Map(nodes.map(n => [n.id, n]));
+    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = NET_PAL[cl[i] % NET_PAL.length]; });
+    const nb = new Map(nodes.map(n => [n.id, []])); B.edges.forEach(e => { nb.get(e.a).push([e.b, e.w]); nb.get(e.b).push([e.a, e.w]); });
+    netView(canvas, {
+      id: 'ca', cls: 'cooccur-svg', svgId: 'coauthor-svg', label: 'Jaringan co-authorship penulis', nodes, edges: B.edges,
+      layout: {linkDist: 90, charge: 1500, spread: 36, w: 900, h: 620},
+      edgeWidth: e => Math.min(5, 0.8 + e.w * 1.1), edgeColor: e => { const A = nById.get(e.a), C = nById.get(e.b); return A.cl === C.cl ? A.color : '#9a9a9a'; },
+      onSelect: n => {
+        if (!n) { detail.classList.add('hidden'); return; }
+        const co = nb.get(n.id).sort((p, q) => q[1] - p[1]).slice(0, 10).map(([k, w]) => `${esc(byKey.get(k).label)} <span class="dim">(${w})</span>`).join(' · ');
+        const arts = [...n.o.docs].map(id => findArticle(id)).filter(Boolean).map(a => `<li><span class="dg-ref">[${esc(refs[a.id] || '?')}]</span> ${esc(a.title || '(tanpa judul)')} <span class="dim">(${esc(a.year || 'n.d.')})</span></li>`).join('');
+        const vars = [...n.o.names.keys()].filter(x => x !== n.o.label);
+        detail.innerHTML = `<h3>${esc(n.label)}</h3><div class="dim">${n.o.n} artikel di korpus · kelompok ${n.cl + 1}${vars.length ? ` · variasi nama: ${esc(vars.join(', '))}` : ''}</div>${co ? `<p><b>Berkolaborasi dengan:</b> ${co}</p>` : '<p class="dim">Menulis sendirian pada artikelnya di korpus ini.</p>'}<ul>${arts}</ul>`;
+        detail.classList.remove('hidden');
+      },
+    });
+    const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
+    const gl = [...groups.entries()].sort((a, b) => a[0] - b[0]), SHOW = 12;
+    legend.innerHTML = gl.slice(0, SHOW).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span style="background:${NET_PAL[c % NET_PAL.length]}"></span>Kelompok ${c + 1} · ${ns.length} penulis: ${esc(ns.slice(0, 2).map(n => n.label).join(', '))}${ns.length > 2 ? '…' : ''}</span>`).join('') + (gl.length > SHOW ? `<span class="map-legend-chip">+ ${gl.length - SHOW} kelompok lain</span>` : '');
+    meta.innerHTML = `${docs.length} artikel · ${B.total} penulis${nodes.length < B.total ? ` (ditampilkan ${nodes.length})` : ''} · ${B.edges.length} hubungan · ${groups.size} kelompok · ${B.repeat} penulis di &gt;1 artikel${B.noAuth ? ` · ${B.noAuth} artikel tanpa data penulis` : ''}`;
+  }
+
+  // ---- Matriks ekstraksi (tahap 3): Author, Method, Object, Findings per artikel. Dibangun kode dari hasil ekstraksi; tanpa AI ----
+  const MX = {open: false}, MX_CLAMP = 170;
+  const mxKey = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function mxTechMap() {   // varian -> nama baku, dari normalisasi teknik yang SUDAH disetujui
+    const ap = state.norm && state.norm.approved, m = new Map();
+    if (ap && Array.isArray(ap.items)) ap.items.forEach(it => {
+      const drop = it.family === '__drop__';
+      [it.canonical, ...list(it.variants)].forEach(n => { const k = mxKey(n); if (k && !m.has(k)) m.set(k, {canonical: it.canonical, drop}); });
+    });
+    return m;
+  }
+  function mxTechniques(a, map) {
+    const ext = a.extraction || a, rd = ext.research_design || a.research_design || {}, out = [], seen = new Set();
+    list(rd.techniques).forEach(raw => {
+      const t = String(raw == null ? '' : raw).trim(); if (!t) return;
+      const m = map.get(mxKey(t)); if (m && m.drop) return;
+      const name = m ? m.canonical : t, k = mxKey(name); if (!k || seen.has(k)) return; seen.add(k); out.push(name);
+    });
+    return out;
+  }
+  function mxAuthor(ext) {
+    const ps = list(ext.authors).map(caParse).filter(Boolean), yr = ext.year || 'n.d.';
+    if (!ps.length) return `(penulis tidak terbaca) (${yr})`;
+    return `${ps.length === 1 ? ps[0].lastRaw : ps.length === 2 ? `${ps[0].lastRaw} & ${ps[1].lastRaw}` : `${ps[0].lastRaw} et al.`} (${yr})`;
+  }
+  function mxRows() {
+    const map = mxTechMap();
+    return ccDocs().map((a, i) => {
+      const ext = a.extraction || a, str = x => String(x == null ? '' : x).trim();
+      return {
+        no: i + 1, id: a.id, author: mxAuthor(ext), authorsFull: list(ext.authors).map(str).filter(Boolean).join('; '),
+        year: ext.year || '', title: str(ext.title), doi: str(ext.doi), techniques: mxTechniques(a, map), methodText: str(ext.methods),
+        object: str(ext.context) || str(ext.objective), findings: list(ext.findings).map(str).filter(Boolean),
+      };
+    });
+  }
+  const mxCut = t => t.slice(0, MX_CLAMP).replace(/\s+\S*$/, '') + '…';
+  function mxText(t, extra = '') {   // teks ringkas + versi lengkap yang bisa dibuka
+    if (!t) return extra || '<span class="dim">—</span>';
+    if (t.length <= MX_CLAMP) return `${extra}<div class="mx-text">${esc(t)}</div>`;
+    return `${extra}<div class="mx-cell"><div class="mx-short mx-text">${esc(mxCut(t))}</div><div class="mx-full mx-text">${esc(t)}</div><button type="button" class="mx-toggle">selengkapnya</button></div>`;
+  }
+  function mxFindings(fs) {
+    if (!fs.length) return '<span class="dim">—</span>';
+    const first = fs[0].length > MX_CLAMP ? mxCut(fs[0]) : fs[0];
+    if (fs.length === 1 && fs[0].length <= MX_CLAMP) return `<div class="mx-text">${esc(fs[0])}</div>`;
+    return `<div class="mx-cell"><div class="mx-short mx-text">${esc(first)}${fs.length > 1 ? ` <span class="dim">(+${fs.length - 1} temuan lain)</span>` : ''}</div><div class="mx-full"><ul>${fs.map(f => `<li class="mx-text">${esc(f)}</li>`).join('')}</ul></div><button type="button" class="mx-toggle">selengkapnya</button></div>`;
+  }
+  function renderMatrix() {
+    const box = $('#matrix-content'), meta = $('#matrix-meta'); if (!box) return;
+    const all = mxRows();
+    if (!all.length) { box.innerHTML = '<div class="empty-state">Belum ada artikel hasil ekstraksi. Unggah dan ekstraksi PDF terlebih dahulu.</div>'; meta.textContent = 'Belum ada data'; return; }
+    const q = mxKey($('#matrix-filter')?.value || '');
+    const rows = q ? all.filter(r => mxKey([r.author, r.title, r.techniques.join(' '), r.methodText, r.object, r.findings.join(' ')].join(' ')).includes(q)) : all;
+    const included = list(state.articles).some(a => a.screening_decision === 'include' && a.eligibility_decision === 'include');
+    const norm = mxTechMap().size > 0;
+    meta.innerHTML = `${rows.length === all.length ? `${all.length} artikel` : `${rows.length} dari ${all.length} artikel`} · ${included ? 'artikel INCLUDE di kedua tahap' : 'semua artikel terekstrak (belum ada yang INCLUDE di kedua tahap)'} · label teknik ${norm ? 'sudah dinormalisasi' : 'masih mentah (normalisasi teknik belum disetujui)'}`;
+    box.classList.toggle('mx-open-all', !!MX.open);
+    if (!rows.length) { box.innerHTML = '<div class="empty-state">Tidak ada baris yang cocok dengan pencarian.</div>'; return; }
+    box.innerHTML = `<table class="matrix-table mx-table"><thead><tr><th>No</th><th>Author</th><th>Method</th><th>Object</th><th>Findings</th></tr></thead><tbody>${rows.map(r => {
+      const chips = r.techniques.length ? `<div class="source-chips mx-chips">${r.techniques.map(t => `<span class="source-chip">${esc(t)}</span>`).join('')}</div>` : '';
+      return `<tr><td>${r.no}</td><td><b>${esc(r.author)}</b>${r.title ? `<div class="dim mx-title" title="${esc(r.authorsFull)}">${esc(r.title)}</div>` : ''}</td><td>${r.methodText ? mxText(r.methodText, chips) : (chips || '<span class="dim">—</span>')}</td><td>${mxText(r.object)}</td><td>${mxFindings(r.findings)}</td></tr>`;
+    }).join('')}</tbody></table>`;
+  }
+  const MX_COLS = ['No', 'Author', 'Tahun', 'Judul', 'Method (teknik)', 'Method (uraian)', 'Object', 'Findings', 'DOI', 'Penulis lengkap'];
+  const mxExportRows = () => mxRows().map(r => [r.no, r.author, r.year, r.title, r.techniques.join('; '), r.methodText, r.object, r.findings.map((f, i) => `${i + 1}. ${f}`).join('\n'), r.doi, r.authorsFull]);
+  const csvCell = v => { const s = String(v == null ? '' : v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function mxCsv(header, rows) { return '\uFEFF' + [header, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n'; }
+  // XLSX minimal tanpa pustaka: arsip ZIP tanpa kompresi + sheet inline-string
+  const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function zipStore(files) {
+    const enc = new TextEncoder(), parts = [], central = [], u16 = n => [n & 255, (n >>> 8) & 255], u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+    let offset = 0;
+    files.forEach(f => {
+      const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data), size = data.length;
+      const local = new Uint8Array([0x50, 0x4B, 3, 4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...name]);
+      central.push(new Uint8Array([0x50, 0x4B, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), ...name]));
+      parts.push(local, data); offset += local.length + size;
+    });
+    const cdSize = central.reduce((s, c) => s + c.length, 0);
+    const end = new Uint8Array([0x50, 0x4B, 5, 6, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
+    return new Blob([...parts, ...central, end], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  }
+  function xlsxBlob(header, rows, widths) {
+    const X = v => String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const col = i => String.fromCharCode(65 + i);
+    const cell = (v, i, r, s) => typeof v === 'number' && Number.isFinite(v) ? `<c r="${col(i)}${r}" s="${s}"><v>${v}</v></c>` : `<c r="${col(i)}${r}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${X(v == null ? '' : v)}</t></is></c>`;
+    const sheetRows = [header, ...rows].map((row, ri) => `<row r="${ri + 1}">${row.map((v, i) => cell(v, i, ri + 1, ri === 0 ? 1 : 2)).join('')}</row>`).join('');
+    const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${sheetRows}</sheetData><autoFilter ref="A1:${col(header.length - 1)}${rows.length + 1}"/></worksheet>`;
+    const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    const H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+    return zipStore([
+      {name: '[Content_Types].xml', text: `${H}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`},
+      {name: '_rels/.rels', text: `${H}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+      {name: 'xl/workbook.xml', text: `${H}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Matriks ekstraksi" sheetId="1" r:id="rId1"/></sheets></workbook>`},
+      {name: 'xl/_rels/workbook.xml.rels', text: `${H}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`},
+      {name: 'xl/styles.xml', text: styles},
+      {name: 'xl/worksheets/sheet1.xml', text: sheet},
+    ]);
+  }
+  function mxDownload(kind) {
+    const rows = mxExportRows();
+    if (!rows.length) { toast('Belum ada artikel untuk diekspor.', 'error'); return; }
+    const base = `matriks-ekstraksi-${topicSlug()}`;
+    if (kind === 'csv') saveBlob(new Blob([mxCsv(MX_COLS, rows)], {type: 'text/csv;charset=utf-8'}), `${base}.csv`);
+    else saveBlob(xlsxBlob(MX_COLS, rows, [5, 22, 8, 40, 32, 60, 45, 70, 26, 40]), `${base}.xlsx`);
+    toast(`Matriks diekspor sebagai ${kind === 'csv' ? 'CSV' : 'Excel'} (${rows.length} artikel).`, 'success');
   }
 
   // ---- System map: dibangun kode dari hubungan (relationships) yang sudah diekstrak per artikel; tanpa AI tambahan ----
@@ -1734,7 +1963,6 @@ ${refnote}
   // Mode formal: warna diagram non-taksonomi dipetakan ke abu-abu di atas putih (untuk unduhan SVG)
   const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0','#c9a0dc':'#7d7d7d','#7fd1c7':'#999999','#d98ba0':'#a5a5a5'};
   const formalizeSvg = s => document.body.classList.contains('formal') ? s.replace(/#[0-9a-fA-F]{6}\b/g, h => FORMAL_MAP[h.toLowerCase()] || h) : s;
-  function downloadSvg(selector, filename) { const svg=$(selector); if(!svg){toast('Diagram belum tersedia.','error');return;} const blob=new Blob([formalizeSvg(svg.outerHTML)],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url); }
   async function checkHealth() {
     const pill = $('#ai-status');
     try {
@@ -1928,7 +2156,7 @@ ${refnote}
     ['research-question', 'source-name', 'search-date', 'search-query', 'inclusion', 'exclusion'].forEach(id => { const el = $('#' + id); if (el) el.readOnly = true; });
     ['guide-context', 'design-topic', 'design-scope'].forEach(id => { const el = $('#' + id); if (el) el.disabled = true; });
     const card = $('.private-card'); if (card) card.innerHTML = '<span class="private-dot"></span><div><strong>Ekspor hanya-baca</strong><small>Data tertanam di berkas ini</small></div>';
-    const copy = $('.hero-copy'); if (copy) copy.textContent = 'Ringkasan proyek systematic review ini: PRISMA, sintesis, peta topik, co-occurrence, system map, dan taksonomi desain riset. Grafik tetap bisa dikontrol.';
+    const copy = $('.hero-copy'); if (copy) copy.textContent = 'Ringkasan proyek systematic review ini: PRISMA, sintesis, matriks ekstraksi, peta topik, peta literatur, system map, dan taksonomi desain riset. Grafik tetap bisa dikontrol.';
     const exp = $('#export-json'); if (exp) exp.textContent = 'Unduh data (JSON) ↗';
     const block = (types, selector) => types.forEach(t => document.addEventListener(t, e => {
       if (e.target && e.target.closest && e.target.closest(selector)) { e.stopPropagation(); if (t === 'submit') e.preventDefault(); }
@@ -1947,7 +2175,7 @@ ${refnote}
     } catch(error) { toast(`Impor gagal: ${error.message}`, 'error'); }
   }
   function renderAll() {
-    renderUsage();renderMetrics();renderArticles();renderPrisma();renderSynthesis();renderTaxonomy();renderSystemMap();renderCooccurrence();
+    renderUsage();renderMetrics();renderArticles();renderPrisma();renderSynthesis();renderTaxonomy();renderSystemMap();renderCooccurrence();renderCoauthor();renderMatrix();
   }
   function handleDecisionChange(event) {
     const el=event.target;
@@ -2358,21 +2586,12 @@ ${refnote}
     if (DG.collapsed.has(id)) DG.collapsed.delete(id); else DG.collapsed.add(id);
     dgLegend(DG.res); dgPaint();
   }
-  function dgDownload(kind) {
+  function dgDownload() {
     if (!DG.root) { toast('Belum ada diagram untuk diunduh.', 'error'); return; }
     const svg = dgBuild(dgTheme());   // unduhan mengikuti Mode formal
     dgPaint();   // dgBuild memperbarui ukuran; gambar layar dibangun ulang
     const slug = String((state.designUi || {}).topic || 'topik').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'topik';
-    const save = (blob, ext) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `diagram-taksonomi-${slug}.${ext}`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
-    if (kind === 'svg') { save(new Blob([svg], {type: 'image/svg+xml;charset=utf-8'}), 'svg'); return; }
-    const scale = Math.min(2, 8000 / Math.max(DG.W, DG.H)), img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas'); c.width = Math.round(DG.W * scale); c.height = Math.round(DG.H * scale);
-      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob(b => b ? save(b, 'png') : toast('Gagal membuat PNG. Gunakan unduhan SVG.', 'error'), 'image/png');
-    };
-    img.onerror = () => toast('Gagal membuat PNG. Gunakan unduhan SVG.', 'error');
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    svgToPng(svg, DG.W, DG.H, `diagram-taksonomi-${slug}.png`);
   }
   function attachDiagramEvents() {
     const fm = $('#formal-toggle');
@@ -2410,8 +2629,7 @@ ${refnote}
     $('#dg-zoom-in').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.min(2.5, DG.zoom * 1.2); dgPaint(); });
     $('#dg-zoom-out').addEventListener('click', () => { DG.fit = false; DG.zoom = Math.max(0.2, DG.zoom / 1.2); dgPaint(); });
     $('#dg-fit').addEventListener('click', () => { if (!DG.root) return; DG.fit = 'all'; DG.resetScroll = true; dgPaint(); });   // hanya zoom: lipatan tidak berubah
-    $('#dg-svg').addEventListener('click', () => dgDownload('svg'));
-    $('#dg-png').addEventListener('click', () => dgDownload('png'));
+    $('#dg-png').addEventListener('click', () => dgDownload());
     window.addEventListener('resize', () => { if (DG.root && DG.fit && $('#design-diagram').classList.contains('active-section')) dgPaint(); });
   }
 
@@ -2450,7 +2668,15 @@ ${refnote}
     ['#system-map-max','#system-map-main','#system-map-hier'].forEach(id=>$(id)?.addEventListener('change',renderSystemMap));
     $('#system-map-relayout')?.addEventListener('click',renderSystemMap);
     $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); });
-    $('#cooccurrence-download')?.addEventListener('click',()=>{ const c=$('#cooccurrence-canvas'); if(c&&c._net) c._net.clear(); downloadSvg('#cooccurrence-canvas svg','cooccurrence-network.svg'); });
+    $$('.lm-tab').forEach(b=>b.addEventListener('click',()=>setLitTab(b.dataset.lm)));
+    $('#litmap-download')?.addEventListener('click',()=>{ if(activeLitTab==='cooc') downloadNetPng('#cooccurrence-canvas','peta-co-occurrence'); else if(activeLitTab==='coauth') downloadNetPng('#coauthor-canvas','peta-co-authorship'); });
+    ['#coauthor-min','#coauthor-max'].forEach(id=>$(id)?.addEventListener('change',renderCoauthor));
+    $('#coauthor-relayout')?.addEventListener('click',renderCoauthor);
+    $('#matrix-filter')?.addEventListener('input',renderMatrix);
+    $('#matrix-expand')?.addEventListener('click',()=>{ MX.open=!MX.open; const b=$('#matrix-expand'); b.textContent=MX.open?'Ringkas semua teks':'Buka semua teks'; b.setAttribute('aria-pressed',MX.open?'true':'false'); renderMatrix(); });
+    $('#matrix-content')?.addEventListener('click',e=>{ const t=e.target.closest&&e.target.closest('.mx-toggle'); if(!t) return; const cell=t.closest('.mx-cell'); if(!cell) return; const on=cell.classList.toggle('open'); t.textContent=on?'ringkas':'selengkapnya'; });
+    $('#matrix-csv')?.addEventListener('click',()=>mxDownload('csv'));
+    $('#matrix-xlsx')?.addEventListener('click',()=>mxDownload('xlsx'));
     const exportMenu = $('#export-menu'), exportBtn = $('#export-json');
     const closeExportMenu = () => { if (exportMenu) { exportMenu.hidden = true; exportBtn.setAttribute('aria-expanded', 'false'); } };
     exportBtn.addEventListener('click', e => {
@@ -2467,12 +2693,7 @@ ${refnote}
     // Import is reachable with keyboard shortcut Ctrl/Cmd+Shift+O; exports remain accessible in the header.
     document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='o'){e.preventDefault();$('#import-json-file').click();}});
     $('#print-prisma').addEventListener('click',()=>{navigate('prisma');setTimeout(()=>window.print(),200);});
-    $('#system-map-download').addEventListener('click',()=>{
-      const sc=$('#system-map-canvas'); if(sc&&sc._net) sc._net.clear();
-      const svg=$('#system-map-svg');if(!svg){toast('Belum ada system map untuk diunduh.','error');return;}
-      const clone=svg.cloneNode(true);clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-      const blob=new Blob([formalizeSvg(new XMLSerializer().serializeToString(clone))],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='system-map.svg';a.click();URL.revokeObjectURL(url);toast('System map diekspor sebagai SVG.','success');
-    });
+    $('#system-map-download').addEventListener('click',()=>downloadNetPng('#system-map-canvas','system-map'));
     // Persist form edits even if the user navigates away before pressing save.
     ['research-question','source-name','search-date','search-query','inclusion','exclusion'].forEach(id=>$('#'+id).addEventListener('change',()=>saveMetaFromForm(false)));
   }
@@ -2480,8 +2701,8 @@ ${refnote}
   document.addEventListener('DOMContentLoaded',()=>{
     // This script is deferred; DOM is ready by the time it runs in modern browsers.
     applyMeta(state.meta);attachEvents();if(VIEWER)initViewer();renderAll();if(!VIEWER)checkHealth();loadCodebook();
-    const h=location.hash.slice(1);const hs=h&&document.getElementById(h);if(hs&&hs.classList.contains('page-section'))navigate(h);
-    window.addEventListener('hashchange',()=>{const t=location.hash.slice(1),el=t&&document.getElementById(t);if(el&&el.classList.contains('page-section')&&!el.classList.contains('active-section'))navigate(t);});
+    const h0=location.hash.slice(1),h=NAV_ALIAS[h0]||h0;const hs=h&&document.getElementById(h);if(hs&&hs.classList.contains('page-section'))navigate(h);
+    window.addEventListener('hashchange',()=>{const t0=location.hash.slice(1),t=NAV_ALIAS[t0]||t0,el=t&&document.getElementById(t);if(el&&el.classList.contains('page-section')&&!el.classList.contains('active-section'))navigate(t);});
     if (!VIEWER && !state.meta.search_date) { const d=new Date();$('#search-date').value=d.toISOString().slice(0,10); }
   });
 })();

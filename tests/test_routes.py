@@ -32,9 +32,11 @@ r = c.get("/app")
 html = r.data.decode("utf-8")
 check(r.status_code == 200 and 'id="overview"' in html, "/app = workspace")
 check('class="page-section active-section"' not in html.replace('id="overview" class="page-section active-section"', ""), "hanya Ikhtisar yang aktif di awal")
-for tab in ("arah-riset", "design-diagram", "overview", "articles", "design", "prisma", "synthesis", "taxonomy", "cooccurrence", "system-map"):
+for tab in ("arah-riset", "design-diagram", "overview", "articles", "design", "prisma", "synthesis", "extraction-matrix", "taxonomy", "literature-map", "system-map"):
     check(f'data-target="{tab}"' in html and f'id="{tab}"' in html, f"tab {tab}: tombol dan section")
 check('<a href="/" class="brand"' in html and 'aria-label="SLR Protocol beranda"' in html, "logo SLR di sidebar menaut ke beranda (/); teks 'Beranda' memang sudah dihapus")
+check('data-target="cooccurrence"' not in html and 'id="coauthor-canvas"' in html and 'id="matrix-content"' in html, "Peta Literatur (co-occurrence + co-authorship) dan Matriks Ekstraksi ada; tombol lama cooccurrence sudah diganti")
+check("Unduh SVG" not in html and 'id="dg-svg"' not in html, "tidak ada tombol unduh SVG (ekspor gambar = PNG)")
 check(c.get("/static/landing.css").status_code == 200, "landing.css terlayani")
 print(f"{ok} lolos, {fail} gagal")
 sys.exit(1 if fail else 0)
