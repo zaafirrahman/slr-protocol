@@ -30,9 +30,9 @@ dihitung langsung dari data ekstraksi tiap artikel, tanpa AI tambahan.
   yang tampaknya tentang cara riset, dimensi yang tidak mencakup semua artikel, sel matrix yang hanya mengutip sebagian artikel).
   Bila pembuatan peta topik gagal, tombol **Buat ulang peta topik** mengulang hanya bagian itu (satu panggilan AI), bukan seluruh sintesis;
   respons AI yang terpotong diselamatkan sebagian.
-- **Co-occurrence** (jaringan istilah: istilah sama digabung, klaster berwarna, istilah dominan bisa disembunyikan) dan **System map**
-  (hubungan antarkonsep yang dinyatakan artikel, klik panah untuk melihat kutipan buktinya). Keduanya bisa diseret, difilter, dan diunduh sebagai
-  SVG. Dihitung kode dari hasil ekstraksi: tanpa AI tambahan dan tanpa biaya token.
+- **Peta Literatur** dengan tab **Co-occurrence** (jaringan istilah: istilah sama digabung, klaster berwarna, istilah dominan bisa disembunyikan) dan
+  **Co-authorship** (kolaborasi penulis), serta **System map** (hubungan antarkonsep yang dinyatakan artikel, klik panah untuk melihat kutipan
+  buktinya). Semuanya bisa diseret, difilter, dan diunduh sebagai PNG. **Matriks Ekstraksi** (Author, Method, Object, Findings) bisa diunduh sebagai CSV/Excel. Dihitung kode dari hasil ekstraksi: tanpa AI tambahan dan tanpa biaya token.
 - **Desain riset (research onion):** tiap artikel diberi label metodologi, strategi, sumber data, dan time horizon
   (berikut basis dinyatakan/disimpulkan dan kutipan yang diverifikasi ke PDF), disusun menjadi taksonomi desain riset
   dan matriks metodologi × strategi. Nama dan keluarga teknik dinormalisasi lewat usulan AI yang kamu setujui; editor
@@ -43,7 +43,7 @@ dihitung langsung dari data ekstraksi tiap artikel, tanpa AI tambahan.
   kriteria inklusi/eksklusi. Tanpa AI dan tanpa biaya token. Hasilnya arah awal, bukan topik final.
 - **Diagram taksonomi:** hasil taksonomi desain riset divisualkan sebagai pohon yang bisa dibuka/ditutup atau sunburst, dengan detail
   artikel per simpul, tombol **№ Nomor jurnal** (menampilkan nomor rujukan artikel di tiap simpul; nomornya sama dengan tab Taksonomi Desain Riset),
-  dan unduhan SVG/PNG (opsional latar terang untuk dicetak). Tanpa AI dan tanpa biaya token.
+  dan unduhan PNG (opsional latar terang untuk dicetak). Tanpa AI dan tanpa biaya token.
 - **Progres live** untuk analisis dan sintesis: persen berdasarkan langkah yang benar-benar selesai, log per
   panggilan AI (token, durasi, biaya), serta catatan retry bila jawaban terpotong.
 - **Popup pemakaian token** (klik chip token di pojok kanan atas): token, jumlah panggilan, estimasi biaya
@@ -258,13 +258,17 @@ Kotak **Perlu dicek** muncul bila kode menemukan ketidakkonsistenan: kategori ya
 dimensi faceted yang tidak mencakup semua artikel, atau baris matrix yang hanya mengutip sebagian artikel dari kategori padanannya. Itu petunjuk untuk diperiksa,
 bukan vonis. Bila muncul **"Peta topik parsial"**, respons AI terpotong dan hanya bagian utuhnya yang dipakai; periksa cakupan atau klik **Buat ulang peta topik**.
 
-**08 Co-occurrence.** Jaringan istilah yang **muncul bersama dalam artikel yang sama**. Lingkaran = istilah (ukuran = jumlah artikel), garis = muncul bersama
+**07 Matriks Ekstraksi.** Tabel Author, Method, Object, Findings per artikel (label teknik memakai hasil normalisasi yang disetujui; teks panjang bisa dibuka), bisa diunduh sebagai CSV atau Excel. Tanpa AI dan tanpa token.
+
+**09 Peta Literatur: Co-occurrence.** Jaringan istilah yang **muncul bersama dalam artikel yang sama**. Lingkaran = istilah (ukuran = jumlah artikel), garis = muncul bersama
 (tebal = sering), warna = klaster (istilah yang sering berkumpul). Kontrol: *Minimum kemunculan*; *Sembunyikan istilah dominan* (aktif secara bawaan: istilah di
 >= 60% artikel, biasanya kata kunci pencarianmu sendiri, terhubung ke semuanya sehingga jaringan berbentuk bintang tanpa informasi); *Atur ulang tata letak*.
 Klik istilah untuk melihat artikelnya, seret untuk memindahkan. Gunanya melihat struktur bidang secara objektif; klaster terpencil menandakan topik niche. **Garis
 bukan hubungan sebab-akibat**, dan ini bukan ekspor VOSviewer; bila skripsimu menyebut VOSviewer, jalankan VOSviewer sungguhan.
 
-**09 System Map.** Peta hubungan antarkonsep **yang dinyatakan artikel** (panah dari asal ke tujuan). Warna kotak berasal dari posisi di jaringan, bukan penilaian AI:
+**09 Peta Literatur: Co-authorship.** Penulis sebagai lingkaran (ukuran = jumlah artikel), garis = artikel bersama. Variasi nama ("J. Han" dan "Jiliang Han") disatukan bila tidak ambigu; penulis yang sama di beberapa artikel otomatis menyambungkan kelompoknya. Tab Citation graph belum tersedia.
+
+**10 System Map.** Peta hubungan antarkonsep **yang dinyatakan artikel** (panah dari asal ke tujuan). Warna kotak berasal dari posisi di jaringan, bukan penilaian AI:
 *Asal hubungan* (hanya menunjuk keluar, mis. metode atau faktor), *Perantara* (menerima dan meneruskan), *Tujuan hubungan* (hanya ditunjuk, mis. hasil).
 Kontrol: *Konsep maksimum*, *Hanya kelompok terbesar*, *Sertakan hierarki konsep* (garis biru induk-turunan). Klik konsep untuk melihat hubungan masuk dan keluarnya;
 **klik panah untuk melihat kutipan asli dari artikel dan nomornya**. Hubungan yang didukung banyak artikel lebih kuat daripada satu artikel. Gunanya menyusun kerangka
@@ -281,10 +285,10 @@ Klik **Ekspor proyek** lalu pilih bentuknya.
 |---|---|---|
 | Untuk | Backup dan pindah komputer | Laporan interaktif untuk dibaca, dibagikan, atau dibuka tanpa aplikasi |
 | Bisa diimpor ulang | Ya (`Ctrl/Cmd + Shift + O`) | Tidak langsung; di dalam HTML ada tombol **Unduh data (JSON)** |
-| Interaktif | - | Ya: semua tab, kontrol Co-occurrence dan System Map, diagram taksonomi, unduh SVG/PNG |
+| Interaktif | - | Ya: semua tab, kontrol Co-occurrence dan System Map, diagram taksonomi, unduh PNG |
 
 Tentang ekspor HTML:
-- Berisi **seluruh tab** (Ikhtisar, Artikel, Taksonomi Desain Riset, Diagram Taksonomi, PRISMA, Review Synthesis, Peta Topik, Co-occurrence, System Map) kecuali Arah Riset TMI.
+- Berisi **seluruh tab** (Ikhtisar, Artikel, Taksonomi Desain Riset, Diagram Taksonomi, PRISMA, Review Synthesis, Matriks Ekstraksi, Peta Topik, Peta Literatur, System Map) kecuali Arah Riset TMI.
   Tampilan dan perilaku grafiknya memakai kode yang sama dengan aplikasi.
 - **Hanya-baca**: unggah PDF, jalankan sintesis, hapus artikel, ubah keputusan, normalisasi, dan pemakaian token disembunyikan atau dikunci. Untuk mengubah data,
   unduh JSON dari HTML itu lalu impor ke aplikasi.

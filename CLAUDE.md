@@ -134,7 +134,7 @@ Browser                                   Flask (app.py)                        
   |  pengguna mengubah screening_decision / eligibility_decision di tab Artikel (state.synthesis di-reset)
   |  POST /api/synthesize (json + job_id) --> filter INCLUDE+INCLUDE -> batch -> (reduce)* -> final -> taksonomi
   |       <-- polling GET /api/synthesis-progress?job_id
-  |  <-- {synthesis, usage}  -> state.synthesis; render PRISMA / sintesis / taxonomy / co-occurrence / system map
+  |  <-- {synthesis, usage}  -> state.synthesis; render PRISMA / sintesis / taxonomy / peta literatur / system map
 ```
 
 ### 4.1 Analisis (`POST /api/analyze`)
@@ -161,21 +161,44 @@ Per PDF (berurutan, satu request panjang):
 Respons: `{articles, errors, model, usage}`. File yang gagal masuk `errors` dan **tidak menghentikan** batch.
 Status HTTP: 400 (tanpa file / terlalu banyak), 503 (AI belum dikonfigurasi), 413 (total unggahan terlalu besar).
 
-### 4.2a Peta topik, co-occurrence, system map (SLR lanjutan)
+### 4.2a Matriks ekstraksi, peta topik, peta literatur, system map (SLR lanjutan)
 
-Peta fitur (tab 04 dan 05 sampai 09). Kolom "AI?" menunjukkan apakah ada panggilan model; semua yang bertanda tidak dihitung murni oleh kode.
+Peta fitur (tab 04 dan 05 sampai 10). Kolom "AI?" menunjukkan apakah ada panggilan model; semua yang bertanda tidak dihitung murni oleh kode.
 
 | Tab | Sumber data | AI? | Fungsi kunci di `app.js` |
 |---|---|---|---|
 | 04 Diagram Taksonomi | `POST /api/design-taxonomy` (hasil yang sama dengan tab 03) | tidak | `dg*`, `dgRefs`, `fmtRefs` (bagian 4.9) |
 | 05 PRISMA Flow | hitungan dari keputusan manual + `identifiedTotal`/`duplicateCount` | tidak | `renderPrisma` |
 | 06 Review Synthesis | `POST /api/synthesize` (batch, reduce, final) | ya | `renderSynthesis` |
-| 07 Peta Topik | `state.synthesis.taxonomy` dari `run_taxonomy`; poly dan pemeriksaan diturunkan kode | ya (satu panggilan) | `renderTaxonomy`, `topicTreeSvg`, `polyDiagram`, `derivePolyhierarchy`, `taxonomyChecks`, `retryTaxonomy` |
-| 08 Co-occurrence | `topic_tags` + nama `concepts` per artikel | tidak | `renderCooccurrence`, `ccBuild`, `ccCanon` |
-| 09 System Map | `relationships` (+ opsional `concepts.parent_concepts`) per artikel | tidak | `renderSystemMap`, `smBuild`, `SM_ROLE` |
+| 07 Matriks Ekstraksi | `authors`, `year`, `research_design.techniques` (+ `state.norm.approved`), `methods`, `context`, `findings` per artikel | tidak | `renderMatrix`, `mxRows`, `mxTechMap`, `mxDownload`, `xlsxBlob` |
+| 08 Peta Topik | `state.synthesis.taxonomy` dari `run_taxonomy`; poly dan pemeriksaan diturunkan kode | ya (satu panggilan) | `renderTaxonomy`, `topicTreeSvg`, `polyDiagram`, `derivePolyhierarchy`, `taxonomyChecks`, `retryTaxonomy` |
+| 09 Peta Literatur (tab Co-occurrence / Co-authorship / Citation) | co-occurrence: `topic_tags` + nama `concepts`; co-authorship: `authors` | tidak | `setLitTab`, `renderCooccurrence`, `ccBuild`, `ccCanon`, `renderCoauthor`, `caBuild`, `caParse` |
+| 10 System Map | `relationships` (+ opsional `concepts.parent_concepts`) per artikel | tidak | `renderSystemMap`, `smBuild`, `SM_ROLE` |
 
-Tab 08 dan 09 **tidak membutuhkan sintesis**: cukup artikel hasil ekstraksi (artikel INCLUDE di kedua tahap; bila belum ada, semua artikel yang
+Tab 07, 09, dan 10 **tidak membutuhkan sintesis**: cukup artikel hasil ekstraksi (artikel INCLUDE di kedua tahap; bila belum ada, semua artikel yang
 ekstraksinya berhasil, lewat `ccDocs`). Karena itu keduanya tetap muncul walaupun sintesis gagal atau belum dijalankan.
+
+**Matriks ekstraksi, Peta Literatur, dan unduhan PNG (19 Nov 2026).**
+- **Matriks Ekstraksi** (tab 07, `extraction-matrix`) memenuhi tahap 3 tugas metlit: kolom Author, Method, Object, Findings. Dibangun kode, tanpa AI.
+  Author = "Han et al. (2026)" (1 penulis: nama; 2: "A & B"; 3+: "et al.") + judul; Method = label teknik (nama baku dari `state.norm.approved.items`,
+  teknik berstatus `__drop__` dibuang, teknik yang belum terpetakan tampil mentah) + teks `methods`; Object = `context` (cadangan `objective`);
+  Findings = `findings[]`. Teks > 170 karakter dipotong (`MX_CLAMP`) dan bisa dibuka per sel ("selengkapnya") atau semua sekaligus. Cakupan = `ccDocs`
+  (sama dengan peta literatur). Kolom "No" = nomor baris, BUKAN nomor jurnal Desain Riset. Ekspor memuat teks lengkap + kolom tambahan (Tahun, Judul,
+  DOI, Penulis lengkap): CSV (UTF-8 BOM, koma) dan XLSX tanpa pustaka (`zipStore` = ZIP tanpa kompresi, `xlsxBlob` = sheet inline-string, header
+  dibekukan, filter otomatis). Excel berbahasa Indonesia sering memakai titik koma sebagai pemisah CSV, jadi untuk Excel gunakan tombol XLSX.
+  Jangan rancukan dengan tab "05 / Matrices" di Peta Topik (klasifikasi silang lain).
+- **Peta Literatur** (`literature-map`, sebelumnya `cooccurrence`) berisi tiga tab dalam halaman: Co-occurrence, Co-authorship, Citation graph (placeholder:
+  daftar pustaka dibuang saat ekstraksi, jadi butuh field baru atau impor). Kelas tab `.lm-tab` (SENGAJA bukan `.taxonomy-tab`, karena pendengar
+  `.taxonomy-tab` mengatur Peta Topik). Id elemen co-occurrence tidak berubah.
+- **Co-authorship** (`caBuild`): simpul = penulis, garis = jumlah artikel bersama; memakai `netLayout`/`netView`/`netCommunities` yang sama. Nama
+  dinormalisasi `caParse` (huruf besar/kecil, aksen, "Belakang, Depan", "Han J", akhiran Jr/II): kunci = belakang|nama depan; nama berinisial ("J. Han")
+  digabung ke nama lengkap HANYA bila tepat satu kandidat di korpus, bila ambigu dibiarkan terpisah. Penulis ganda dalam satu artikel dihitung sekali.
+  Penulis yang sama di beberapa artikel otomatis menghubungkan kelompok-kelompoknya. Pada korpus nyata (17 artikel) belum ada penulis berulang, jadi
+  jaringannya 17 kelompok terpisah; ada catatan di atas peta untuk itu. Batas tampilan `#coauthor-max` (default 120).
+- **Semua ekspor gambar kini PNG** (`svgToPng`: canvas, skala maks 2, sisi terpanjang maks 8000 px; `downloadNetPng` menyalin SVG, menghapus sorotan, lalu
+  mengikuti Mode formal lewat `formalizeSvg`). Tombol dan fungsi unduh SVG dihapus (`dg-svg`, `downloadSvg`). Satu tombol `#litmap-download` mengunduh
+  tab Peta Literatur yang aktif.
+
 
 - **Taksonomi** dibuat `run_taxonomy` (satu panggilan AI, dipakai `/api/synthesize` dan `POST /api/taxonomy`). `llm_json(..., salvage=True)`
   menyelamatkan JSON yang terpotong lewat `repair_truncated_json` (tutup string/array/objek, atau potong ke koma/penutup valid terakhir)
@@ -211,8 +234,8 @@ Tombol "Ekspor laporan (HTML)" di tab Taksonomi Desain Riset (`buildDesignReport
   (hanya `/api/design-taxonomy` dan `/api/codebook` dari payload; selain itu error), `checkHealth` dilewati, tab Arah Riset TMI tidak ikut.
   `initViewer` mengunci formulir, memasang spanduk, dan memblokir klik/ubah pada pengubah data di fase capture. CSS `body.is-viewer ...` menyembunyikan
   unggah PDF, jalankan sintesis, hapus artikel, normalisasi, pemakaian token, dan donasi. Select keputusan dan checkbox verifikasi dirender `disabled`.
-- **Tetap hidup di viewer**: semua tab, pencarian/filter artikel, kontrol Co-occurrence (minimum, istilah dominan, atur ulang), System Map (maksimum,
-  kelompok terbesar, hierarki), Diagram Taksonomi (pohon/sunburst, nomor jurnal, mode formal), unduh SVG/PNG, dan **Unduh data (JSON)**.
+- **Tetap hidup di viewer**: semua tab, pencarian/filter artikel, kontrol Peta Literatur (minimum, istilah dominan, atur ulang; tab Co-authorship), pencarian dan buka-tutup teks Matriks Ekstraksi, unduh CSV/Excel matriks, System Map (maksimum,
+  kelompok terbesar, hierarki), Diagram Taksonomi (pohon/sunburst, nomor jurnal, mode formal), unduh PNG, dan **Unduh data (JSON)**.
 - **Batas**: potret data saat ekspor (ekspor ulang bila data berubah); font Inter/Poppins tidak ikut (memakai font sistem); avatar kredit sidebar dibuang
   (teks kredit tetap); berkas memuat seluruh data ekstraksi artikel seperti JSON, jadi perlakukan sama saat dibagikan.
 - **Tes**: `tests/test_export_html.py` (rute + kerapian HTML + payload), `tests/viewer_smoke.js` (menjalankan berkas hasil ekspor dengan DOM tiruan
@@ -557,13 +580,13 @@ Helper `$`/`$$`, `esc()` (escape HTML, **wajib** untuk semua data AI yang masuk 
 | Area | Fungsi kunci |
 |---|---|
 | State & penyimpanan | `loadState`, `saveState`, `DEFAULT_STATE`, `STORE_KEY` |
-| Navigasi | `navigate(target)`, tombol `data-target`, 10 tab: "Arah Riset" (id `arah-riset`, berdiri sendiri di atas kedua grup tanpa label, lencana TMI, bukan bagian alur proyek) dan 8 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset", design-diagram "Diagram Taksonomi". SLR LANJUTAN: prisma, synthesis, taxonomy "Peta Topik", cooccurrence, system-map. Id section dan `data-target` TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
+| Navigasi | `navigate(target)`, tombol `data-target`, 12 tab: "Arah Riset" (id `arah-riset`, berdiri sendiri di atas kedua grup tanpa label, lencana TMI, bukan bagian alur proyek) dan 10 tab dalam DUA grup sidebar. TAKSONOMI (tugas desain riset): overview "Ikhtisar", articles "Artikel", design "Taksonomi Desain Riset", design-diagram "Diagram Taksonomi". SLR LANJUTAN: prisma, synthesis, extraction-matrix "Matriks Ekstraksi", taxonomy "Peta Topik", literature-map "Peta Literatur", system-map. Id `cooccurrence` diganti `literature-map` (19 Nov 2026), tautan lama `#cooccurrence` tetap bekerja lewat `NAV_ALIAS`; id lain TIDAK diganti (hanya label tampil); urutan tombol tidak memengaruhi logika `navigate`. `renderDesignSteps()` menggambar panel LANGKAH di atas Desain Riset (status dibaca dari state, tidak disimpan) |
 | Upload | `handleUpload`: validasi → pre-check duplikat (`sha256Hex` via `crypto.subtle`) → FormData + `job_id` → polling → merge artikel |
 | Progres | `PANELS`, `renderProcessProgress`, `startProgressPolling(kind, jobId)` (interval 500 ms) |
 | Sintesis | `handleSynthesis` (menolak bila belum ada artikel INCLUDE/INCLUDE) |
 | Token & tarif | `renderUsage`, popup (`renderUsagePopover`, `periodBlockHtml`, `donateBlockHtml`), `refreshHealthInfo` tiap 60 dtk |
 | Visualisasi | `renderTaxonomy` (hierarchical = `topicTreeSvg`, poly = `polyDiagram`, faceted, flat, matrix), `renderCooccurrence` (`ccBuild`: `topic_tags`+`concepts`, istilah dinormalisasi `ccCanon`), `renderSystemMap` (`smBuild`: dari `relationships` per artikel, **bukan** dari `synthesis.system_map`). Ketiganya memakai mesin jaringan bersama `netLayout`/`netView` (lihat 4.2a) |
-| Backup | `exportProject` (JSON), `importProject` (`Ctrl/Cmd+Shift+O`), `downloadSvg`, cetak PRISMA. Tombol **Ekspor proyek** membuka menu `#export-menu` (JSON atau HTML) |
+| Backup | `exportProject` (JSON), `importProject` (`Ctrl/Cmd+Shift+O`), `downloadNetPng`/`svgToPng` (semua ekspor gambar = PNG; tidak ada unduhan SVG), cetak PRISMA. Tombol **Ekspor proyek** membuka menu `#export-menu` (JSON atau HTML) |
 | Jaringan | `netLayout` (force-directed + tumbukan kotak, per komponen terhubung), `netView` (SVG + hover/klik/seret), `netCommunities` (klaster), `netBBox`; dipakai Co-occurrence, System Map, dan poly-hierarchy (4.2a) |
 | Ekspor HTML / mode viewer | `exportProjectHtml` (klien), `VIEWER`, `viewerApi`, `initViewer` (mode hanya-baca, 4.2b) |
 
@@ -710,7 +733,7 @@ Tes SLR lanjutan dan ekspor HTML (tanpa jaringan, tanpa API key; masing-masing m
   (lihat daftar periksa di bawah). Alur penuh yang pernah dijalankan: `live_export_smoke` → simpan payload → `POST /api/export-html` → `viewer_smoke`.
 
 Daftar periksa manual sebelum merilis perubahan UI SLR lanjutan: buka ekspor HTML di browser (file://), klik semua tab, coba kontrol Co-occurrence dan
-System Map, seret satu simpul, unduh SVG, dan pastikan tidak ada galat di konsol.
+System Map, seret satu simpul, unduh PNG, dan pastikan tidak ada galat di konsol.
 
 Tes otomatis tanpa jaringan dan tanpa API key: `python tests/test_research_design.py` (158 pengecekan: normalisasi
 kutipan, pembuangan referensi, pemotongan teks, validasi codebook, taksonomi desain, hierarki). Bagian yang butuh PDF
