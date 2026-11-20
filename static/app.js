@@ -816,14 +816,15 @@
     img.onerror = () => toast('Gagal membuat PNG.', 'error');
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
   }
-  function downloadNetPng(canvasSel, base) {
+  function downloadNetPng(canvasSel, base, lit = false) {
     const canvas = $(canvasSel), svg = canvas && canvas.querySelector('svg');
     if (!svg) { toast('Belum ada peta untuk diunduh.', 'error'); return; }
     if (canvas._net) canvas._net.clear();
     const clone = svg.cloneNode(true); clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     const vb = String(clone.getAttribute('viewBox') || '').split(/\s+/).map(Number), W = vb[2] || 900, H = vb[3] || 600;
     clone.removeAttribute('style'); clone.setAttribute('width', W); clone.setAttribute('height', H);
-    svgToPng(formalizeSvg(new XMLSerializer().serializeToString(clone)), W, H, `${base}-${topicSlug()}.png`);
+    const xml = new XMLSerializer().serializeToString(clone);
+    svgToPng(lit ? litFormalizeSvg(xml) : formalizeSvg(xml), W, H, `${base}-${topicSlug()}.png`);
   }
 
   // ---- Peta literatur: tiga tab dalam satu halaman (co-occurrence, co-authorship, citation) ----
@@ -1133,7 +1134,7 @@
         + `<text font-family="${NET_FONT}" font-size="12" font-weight="${root0 ? 800 : n.depth === 1 ? 700 : 500}" fill="${root0 ? '#000000' : n.depth === 1 ? col : '#e8e8e8'}">${L.map((t, i) => `<tspan x="${n.depth > 1 ? 19 : 12}" y="${(top + i * 14.5).toFixed(1)}"${i >= n.lines.length ? ` fill="#9a9a9a" font-size="11" font-weight="400"` : ''}>${esc(t)}</tspan>`).join('')}</text>`
         + (n.depth && n.ids.length ? `<rect x="${n.w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${n.w - 16.5}" y="4" text-anchor="middle" font-family="${NET_FONT}" font-size="11" font-weight="700" fill="${col}">${n.ids.length}</text>` : '') + '</g>';
     });
-    return `<div class="system-map-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
+    return `<div id="topic-tree-canvas" class="system-map-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
   }
   // Poly-hierarchy turunan kode (dipakai bila AI tidak mengisinya): konsep irisan = pasangan subkategori (daun) dari dua cabang
   // berbeda yang berbagi >= 2 artikel; induknya kedua daun itu, article_ids = artikel yang sama. Maksimal 12 irisan terkuat.
@@ -1908,7 +1909,7 @@ ${refnote}
       const levels = list(h.levels), cov = s.taxonomy_coverage;
       const principle = levels.length ? `<p class="taxonomy-help"><strong>Prinsip pengelompokan:</strong> ${levels.map(l=>`level ${esc(l.level)}: ${esc(l.principle)}`).join(' · ')}</p>` : '';
       const covLine = cov ? `<p class="taxonomy-help">Cakupan: ${esc(cov.covered)}/${esc(cov.total)} artikel punya tempat di hierarki${list(cov.uncovered_ids).length ? ` · belum terpetakan: ${list(cov.uncovered_ids).map(id=>esc((findArticle(id)||{}).title||id)).join('; ')}` : ''}${cov.parent_fixes ? ` · ${esc(cov.parent_fixes)} relasi induk diperbaiki otomatis` : ''}.</p>` : '';
-      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? topicTreeSvg(root,nodes) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? '<div class="map-toolbar"><span>Diagram hierarkis mengikuti Mode formal saat diunduh.</span><button type="button" class="button button-secondary button-small" id="taxonomy-png">Unduh PNG ↗</button></div>' + topicTreeSvg(root,nodes) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
     } else if (activeTaxonomy === 'faceted') {
       const f=s.taxonomy.faceted||{}; const facets=list(f.facets);
       box.innerHTML = `<div class="synth-eyebrow">FACETED TAXONOMY</div><h2 class="taxonomy-title">Klasifikasi berdasarkan beberapa facet</h2><p class="taxonomy-help">Setiap kolom menunjukkan dimensi atribut yang berbeda untuk mendeskripsikan studi atau konsep.</p>${facets.length ? `<div class="facet-diagram">${facets.map((facet,i)=>`<div class="facet-column"><div class="facet-head">${esc(facet.name||'Facet '+(i+1))}</div>${list(facet.values).map(v=>`<div class="facet-value"><strong>${esc(v.name||'Kategori')}</strong><small>${esc(v.description||'')}</small><span>${list(v.article_ids).length} artikel</span></div>`).join('')}</div>`).join('')}</div>` : '<div class="empty-state">Belum ada facet yang dihasilkan. Jalankan ulang sintesis untuk membuat klasifikasi multi-dimensi.</div>'}`;
@@ -1963,6 +1964,18 @@ ${refnote}
   // Mode formal: warna diagram non-taksonomi dipetakan ke abu-abu di atas putih (untuk unduhan SVG)
   const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0','#c9a0dc':'#7d7d7d','#7fd1c7':'#999999','#d98ba0':'#a5a5a5'};
   const formalizeSvg = s => document.body.classList.contains('formal') ? s.replace(/#[0-9a-fA-F]{6}\b/g, h => FORMAL_MAP[h.toLowerCase()] || h) : s;
+  // Peta literatur (co-occurrence & co-authorship), Mode formal: latar putih, warna klaster tetap beragam tapi dipekatkan agar kontras di atas putih.
+  // Sinkron dengan blok "Peta literatur" di Mode formal pada style.css (tampilan layar memakai CSS, unduhan PNG memakai fungsi ini).
+  const LIT_FORMAL = {'#9fd09f':'#2f9e44','#dcb85c':'#d4a000','#86b4d8':'#1c7ed6','#e8906e':'#e8590c','#c9a0dc':'#9c36b5','#7fd1c7':'#0ca678','#d98ba0':'#d6336c','#e8e8e8':'#495057'};
+  const litFormalizeSvg = s => !document.body.classList.contains('formal') ? s : s.replace(/<(rect|circle|path|text)\b[^>]*>/g, tag => {
+    const isText = tag.startsWith('<text');
+    tag = tag.replace(/\b(fill|stroke)="(#[0-9a-fA-F]{6})"/g, (m, attr, hex) => {
+      hex = hex.toLowerCase();
+      const to = isText ? (hex === '#000000' ? '#ffffff' : '#111111') : hex === '#000000' ? '#ffffff' : hex === '#9a9a9a' ? '#868e96' : LIT_FORMAL[hex];
+      return to ? `${attr}="${to}"` : m;
+    });
+    return tag.indexOf('class="net-edge"') > -1 ? tag.replace('stroke-opacity="0.6"', 'stroke-opacity="0.75"') : tag;
+  });
   async function checkHealth() {
     const pill = $('#ai-status');
     try {
@@ -2155,7 +2168,7 @@ ${refnote}
     const wrap = $('.page-wrap'); if (wrap) wrap.insertBefore(banner, wrap.firstChild);
     ['research-question', 'source-name', 'search-date', 'search-query', 'inclusion', 'exclusion'].forEach(id => { const el = $('#' + id); if (el) el.readOnly = true; });
     ['guide-context', 'design-topic', 'design-scope'].forEach(id => { const el = $('#' + id); if (el) el.disabled = true; });
-    const card = $('.private-card'); if (card) card.innerHTML = '<span class="private-dot"></span><div><strong>Ekspor hanya-baca</strong><small>Data tertanam di berkas ini</small></div>';
+    const card = $('.private-card'); if (card) card.innerHTML = '<strong>Ekspor hanya-baca</strong><small>Data tertanam di berkas ini</small>';
     const copy = $('.hero-copy'); if (copy) copy.textContent = 'Ringkasan proyek systematic review ini: PRISMA, sintesis, matriks ekstraksi, peta topik, peta literatur, system map, dan taksonomi desain riset. Grafik tetap bisa dikontrol.';
     const exp = $('#export-json'); if (exp) exp.textContent = 'Unduh data (JSON) ↗';
     const block = (types, selector) => types.forEach(t => document.addEventListener(t, e => {
@@ -2667,9 +2680,9 @@ ${refnote}
     $('#cooccurrence-relayout')?.addEventListener('click',renderCooccurrence);
     ['#system-map-max','#system-map-main','#system-map-hier'].forEach(id=>$(id)?.addEventListener('change',renderSystemMap));
     $('#system-map-relayout')?.addEventListener('click',renderSystemMap);
-    $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); });
+    $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); else if(e.target.closest('#taxonomy-png')) downloadNetPng('#topic-tree-canvas','peta-topik-hierarkis'); });
     $$('.lm-tab').forEach(b=>b.addEventListener('click',()=>setLitTab(b.dataset.lm)));
-    $('#litmap-download')?.addEventListener('click',()=>{ if(activeLitTab==='cooc') downloadNetPng('#cooccurrence-canvas','peta-co-occurrence'); else if(activeLitTab==='coauth') downloadNetPng('#coauthor-canvas','peta-co-authorship'); });
+    $('#litmap-download')?.addEventListener('click',()=>{ if(activeLitTab==='cooc') downloadNetPng('#cooccurrence-canvas','peta-co-occurrence',true); else if(activeLitTab==='coauth') downloadNetPng('#coauthor-canvas','peta-co-authorship',true); });
     ['#coauthor-min','#coauthor-max'].forEach(id=>$(id)?.addEventListener('change',renderCoauthor));
     $('#coauthor-relayout')?.addEventListener('click',renderCoauthor);
     $('#matrix-filter')?.addEventListener('input',renderMatrix);

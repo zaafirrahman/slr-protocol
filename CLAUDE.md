@@ -196,7 +196,7 @@ ekstraksinya berhasil, lewat `ccDocs`). Karena itu keduanya tetap muncul walaupu
   Penulis yang sama di beberapa artikel otomatis menghubungkan kelompok-kelompoknya. Pada korpus nyata (17 artikel) belum ada penulis berulang, jadi
   jaringannya 17 kelompok terpisah; ada catatan di atas peta untuk itu. Batas tampilan `#coauthor-max` (default 120).
 - **Semua ekspor gambar kini PNG** (`svgToPng`: canvas, skala maks 2, sisi terpanjang maks 8000 px; `downloadNetPng` menyalin SVG, menghapus sorotan, lalu
-  mengikuti Mode formal lewat `formalizeSvg`). Tombol dan fungsi unduh SVG dihapus (`dg-svg`, `downloadSvg`). Satu tombol `#litmap-download` mengunduh
+  mengikuti Mode formal lewat `formalizeSvg`; untuk Peta Literatur lewat `litFormalizeSvg`: latar putih, warna klaster tetap beragam tapi dipekatkan, palet `LIT_FORMAL` harus sama dengan blok CSS "Peta literatur" di Mode formal). Tombol dan fungsi unduh SVG dihapus (`dg-svg`, `downloadSvg`). Peta Topik tab Hierarchical punya tombol `#taxonomy-png` (memanggil `downloadNetPng('#topic-tree-canvas', ...)`, mengikuti Mode formal lewat `formalizeSvg`). Satu tombol `#litmap-download` mengunduh
   tab Peta Literatur yang aktif.
 
 
