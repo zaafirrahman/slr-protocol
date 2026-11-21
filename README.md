@@ -135,7 +135,7 @@ dan pengaturan provider di atas diabaikan.
 
 | Batas | Ollama | DeepSeek |
 |---|---|---|
-| Teks yang dibaca per PDF | 18.000 karakter | 80.000 karakter (batas pengaman 200.000) |
+| Teks yang dibaca per PDF | 18.000 karakter | 130.000 karakter (batas pengaman 200.000) |
 | PDF per upload | 8 | 20 |
 | Ukuran per PDF | 12 MB | 30 MB |
 | Artikel per batch sintesis | 4 | 12 |
@@ -266,7 +266,9 @@ bukan vonis. Bila muncul **"Peta topik parsial"**, respons AI terpotong dan hany
 Klik istilah untuk melihat artikelnya, seret untuk memindahkan. Gunanya melihat struktur bidang secara objektif; klaster terpencil menandakan topik niche. **Garis
 bukan hubungan sebab-akibat**, dan ini bukan ekspor VOSviewer; bila skripsimu menyebut VOSviewer, jalankan VOSviewer sungguhan.
 
-**09 Peta Literatur: Co-authorship.** Penulis sebagai lingkaran (ukuran = jumlah artikel), garis = artikel bersama. Variasi nama ("J. Han" dan "Jiliang Han") disatukan bila tidak ambigu; penulis yang sama di beberapa artikel otomatis menyambungkan kelompoknya. Tab Citation graph belum tersedia.
+**09 Peta Literatur: Co-authorship.** Penulis sebagai lingkaran (ukuran = jumlah artikel), garis = artikel bersama. Variasi nama ("J. Han" dan "Jiliang Han") disatukan bila tidak ambigu; penulis yang sama di beberapa artikel otomatis menyambungkan kelompoknya.
+
+**09 Peta Literatur: Citation graph.** Daftar pustaka tiap artikel dibaca oleh kode saat PDF diunggah (tanpa AI, tanpa token tambahan, dan tidak bergantung pada `MAX_TEXT_CHARS`). Tiga tampilan: *Bibliographic coupling* (gaya VOSviewer: dua artikel terhubung bila mengutip rujukan yang sama), *Sitasi langsung* (A mengutip B, hanya bila keduanya ada di korpus; artikel yang terbit berdekatan jarang saling mengutip, jadi bisa nyaris kosong), dan *Rujukan bersama* (daftar karya yang dikutip lebih dari satu artikel). Pencocokan memakai DOI dan kombinasi penulis-tahun-judul, jadi daftar pustaka berformat tak lazim bisa terlewat dan hasilnya batas bawah. Artikel yang sudah ada di proyek sebelum fitur ini perlu diunggah ulang (keputusan screening dipertahankan).
 
 **10 System Map.** Peta hubungan antarkonsep **yang dinyatakan artikel** (panah dari asal ke tujuan). Warna kotak berasal dari posisi di jaringan, bukan penilaian AI:
 *Asal hubungan* (hanya menunjuk keluar, mis. metode atau faktor), *Perantara* (menerima dan meneruskan), *Tujuan hubungan* (hanya ditunjuk, mis. hasil).

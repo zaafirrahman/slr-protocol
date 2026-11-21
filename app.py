@@ -112,7 +112,7 @@ MAX_FILES_PER_BATCH = _env_int("MAX_FILES_PER_BATCH", 20 if IS_API else 8)
 MAX_FILE_MB = _env_int("MAX_FILE_MB", 30 if IS_API else 12)
 MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 MAX_TEXT_CHARS_HARD = 200000  # pengaman: skripsi/buku tidak boleh membengkakkan tagihan
-MAX_TEXT_CHARS = min(_env_int("MAX_TEXT_CHARS", 80000 if IS_API else 18000, minimum=1000), MAX_TEXT_CHARS_HARD)
+MAX_TEXT_CHARS = min(_env_int("MAX_TEXT_CHARS", 130000 if IS_API else 18000, minimum=1000), MAX_TEXT_CHARS_HARD)
 SYNTH_BATCH_SIZE = _env_int("SYNTH_BATCH_SIZE", 12 if IS_API else 4, minimum=2)      # artikel per batch sintesis
 REDUCE_GROUP_SIZE = _env_int("REDUCE_GROUP_SIZE", 8 if IS_API else 4, minimum=2)     # ringkasan per penggabungan
 LLM_OUTPUT_SCALE = float(os.getenv("LLM_OUTPUT_SCALE", "1.75" if IS_API else "1"))   # pengali batas token output (hanya plafon)
@@ -724,7 +724,7 @@ CODEBOOK_VERSION = "onion-saunders2019-v3"  # v3: basis per nilai, label eksplis
 NOT_STATED = "not_stated"
 # Versi format hasil analisis per artikel. Naikkan bila skema/aturan ekstraksi berubah: artikel dengan versi lebih rendah
 # boleh diunggah ulang (browser tidak lagi menganggapnya duplikat) dan hasilnya menggantikan yang lama.
-ANALYSIS_VERSION = 6  # v6: aturan penulisan techniques (tanpa topik/dataset/metrik, tanpa kata penjelas)
+ANALYSIS_VERSION = 7  # v7: daftar pustaka diurai kode (references, doi_detected) untuk citation graph; v6: aturan penulisan techniques
 
 
 def _cv(label, definition):
@@ -979,12 +979,145 @@ REF_HEADING = re.compile(
 TRIM_MARKER = "\n\n[... bagian tengah dipotong karena batas panjang teks ...]\n\n"
 
 
-def strip_references(text):
-    """Buang daftar pustaka: bukan bukti ekstraksi, tetapi memakan 10-20% jatah karakter."""
+def split_references(text):
+    """Pisahkan isi artikel dan daftar pustaka. Return (isi, teks_dapus); teks_dapus kosong bila tidak ditemukan.
+    Dapus bukan bukti ekstraksi dan memakan 10-20% jatah karakter, jadi tidak dikirim ke AI; teksnya
+    tetap dipegang kode untuk diurai (parse_references) menjadi bahan citation graph."""
     for match in REF_HEADING.finditer(text):
         if match.start() > len(text) * 0.35:  # abaikan kata 'References' di awal dokumen
-            return text[:match.start()].rstrip(), True
-    return text, False
+            return text[:match.start()].rstrip(), text[match.end():]
+    return text, ""
+
+
+def strip_references(text):
+    body, tail = split_references(text)
+    return body, bool(tail)
+
+
+# ---- Daftar pustaka -> data terstruktur (tanpa AI, tanpa token) untuk citation graph ----
+REF_MAX_ENTRIES = 400       # batas entri per artikel
+REF_RAW_CHARS = 240         # panjang teks mentah per entri yang disimpan (cukup untuk mencocokkan judul)
+REF_TITLE_CHARS = 140
+REF_DOI = re.compile(r"10\.\d{4,9}/[^\s\"<>]+")
+REF_YEAR = re.compile(r"(?<![\d.:/\-])((?:19|20)\d{2})([a-z])?(?!\d)(?!\.\d)")
+REF_PARTICLE = r"(?:(?:van|von|de|der|den|da|di|le|la|del|dos|el|al|bin|ter|ten)\s+)*"
+REF_AUTHOR_START = re.compile(
+    r"^" + REF_PARTICLE + r"[A-ZÀ-ÖØ-Þ][\w'’\-]*(?:[ \-][A-Za-zÀ-ÿ'’\-]+){0,3},\s+[A-Z]\.")      # Surname, I.
+REF_CORP_START = re.compile(r"^[A-Z][^,]{3,90},\s+(?:19|20)\d{2}[a-z]?[.,]")                      # Organisasi, 2020.
+REF_NUM_BRACKET = re.compile(r"^\s*\[\d{1,3}\]\s*")
+REF_NUM_DOT = re.compile(r"^\s*\d{1,3}\.\s+(?=[A-Z])")
+PAGE_MARK = re.compile(r"^\[PAGE \d+\]$")
+
+
+def running_lines(page_texts):
+    """Baris kepala/kaki halaman (nama jurnal, penulis, nomor halaman) yang berulang di banyak halaman."""
+    count = {}
+    for _, text in page_texts or []:
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        for line in set(lines[:3] + lines[-3:]):
+            key = re.sub(r"\d+", "#", line.lower())
+            count[key] = count.get(key, 0) + 1
+    return {k for k, n in count.items() if n >= 3}
+
+
+def _join_ref_lines(lines):
+    out = ""
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if not out:
+            out = line
+        elif out.endswith("-") and line[:1].islower():
+            out += line
+        elif re.search(r"(?:https?:|//|doi\.org/|10\.\d{4,9}/\S*[./_\-])$", out):  # DOI/URL terpotong di akhir baris
+            out += line
+        else:
+            out += " " + line
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def split_reference_entries(ref_text, drop_lines=()):
+    lines = []
+    for raw in ref_text.splitlines():
+        line = raw.strip()
+        if not line or PAGE_MARK.match(line) or re.fullmatch(r"\d{1,4}", line):
+            continue
+        if not re.fullmatch(r"\d{5,}", line) and re.sub(r"\d+", "#", line.lower()) in drop_lines:   # angka 5+ digit = sambungan DOI, bukan nomor halaman
+            continue
+        lines.append(line)
+    if not lines:
+        return []
+    bracket = sum(1 for l in lines if REF_NUM_BRACKET.match(l))
+    dotted = sum(1 for l in lines if REF_NUM_DOT.match(l))
+    groups, cur = [], []
+    if bracket >= 5:
+        for l in lines:
+            if REF_NUM_BRACKET.match(l) and cur:
+                groups.append(cur); cur = []
+            cur.append(REF_NUM_BRACKET.sub("", l, count=1))
+    elif dotted >= 5 and dotted >= bracket:
+        for l in lines:
+            if REF_NUM_DOT.match(l) and cur:
+                groups.append(cur); cur = []
+            cur.append(REF_NUM_DOT.sub("", l, count=1))
+    else:  # gaya author-year (Elsevier, APA, dst): entri baru = baris berawalan 'Nama, I.' setelah baris yang berakhir kalimat
+        for l in lines:
+            starts = bool(REF_AUTHOR_START.match(l) or REF_CORP_START.match(l))
+            if cur and starts and re.search(r"[.)\]\d]$", cur[-1]):
+                groups.append(cur); cur = []
+            cur.append(l)
+    if cur:
+        groups.append(cur)
+    return [_join_ref_lines(g) for g in groups]
+
+
+def parse_reference_entry(entry):
+    raw = re.sub(r"\s+", " ", entry).strip()
+    doi_match = REF_DOI.search(raw)
+    doi = doi_match.group(0).rstrip(".,;)]}'\"").lower() if doi_match else ""
+    ym = REF_YEAR.search(raw)
+    year = (ym.group(1) + (ym.group(2) or "")) if ym else ""
+    head = raw.split(",", 1)[0].strip()
+    if re.match(r"^(?:[A-Z]\.[ \-]?)+\s*\S", head):
+        head = re.split(r" and | & ", head, maxsplit=1)[0].strip()
+    init = re.match(r"^(?:[A-Z]\.[ \-]?)+\s*(\S+)$", head)       # gaya IEEE: 'A. Smith'
+    author = (init.group(1) if init else head)[:60]
+    title = ""
+    quoted = re.search(r"[“\"]([^”\"]{12,300})[”\"]", raw)
+    if quoted and (init or not ym):   # judul dalam tanda kutip khas gaya IEEE; di gaya Elsevier kutip hanya bagian judul
+        title = quoted.group(1).rstrip(",. ")
+    elif ym:
+        rest = raw[ym.end():].lstrip(").,: ")
+        cut = re.search(r"\.\s+(?=[A-Z])|\?\s|\.$", rest)
+        title = (rest[:cut.start()] if cut else rest).strip()
+    return {"r": raw[:REF_RAW_CHARS], "d": doi, "y": year, "a": author, "t": title[:REF_TITLE_CHARS]}
+
+
+def parse_references(ref_text, page_texts=None):
+    """Daftar entri terstruktur: r=teks mentah (terpotong), d=DOI, y=tahun, a=nama belakang penulis pertama, t=judul (tebakan).
+    Entri terlalu pendek/panjang atau tanpa tahun dan DOI dibuang (biasanya sisa kepala halaman atau lampiran)."""
+    out = []
+    for entry in split_reference_entries(ref_text or "", running_lines(page_texts)):
+        if not 25 <= len(entry) <= 900:
+            continue
+        item = parse_reference_entry(entry)
+        if not item["y"] and not item["d"]:
+            continue
+        out.append(item)
+        if len(out) >= REF_MAX_ENTRIES:
+            break
+    return out
+
+
+def detect_article_doi(page_texts):
+    """DOI artikel itu sendiri: dibaca dari halaman pertama PDF (lebih tepercaya daripada tebakan AI)."""
+    for _, text in (page_texts or [])[:2]:
+        flat = re.sub(r"\s*\n\s*", " ", text)
+        m = re.search(r"doi\.org/\s*(10\.\d{4,9}/[^\s\"<>]+)", flat, re.IGNORECASE) or REF_DOI.search(flat)
+        if m:
+            return (m.group(1) if m.re.groups else m.group(0)).rstrip(".,;)]}'\"").lower()
+    return ""
 
 
 def trim_text(text, limit):
@@ -1017,13 +1150,16 @@ def read_pdf(pdf_bytes):
             break
     doc.close()
     full = "".join(chunks)
-    body, references_removed = strip_references(full)
+    body, ref_tail = split_references(full)
+    references_removed = bool(ref_tail)
     text, truncated = trim_text(body, MAX_TEXT_CHARS)
     info = {
         "chars_original": len(full),
         "chars_body": len(body),  # isi artikel tanpa daftar pustaka: dasar perhitungan bagian yang dilewati
         "truncated": truncated,
         "references_removed": references_removed,
+        "references": parse_references(ref_tail, page_texts),   # untuk citation graph; TIDAK dikirim ke AI
+        "doi_detected": detect_article_doi(page_texts),
         "page_texts": page_texts,
     }
     return pages, text, info
@@ -2302,7 +2438,7 @@ def analyze_pdfs():
             progress.set_fraction(0.08)
             notes = []
             if pdf_info["references_removed"]:
-                notes.append("daftar pustaka dibuang")
+                notes.append(f"daftar pustaka tidak dikirim ke AI ({len(pdf_info['references'])} entri disimpan untuk citation graph)")
             if pdf_info["truncated"]:
                 notes.append(f"isi artikel {fmt_int(pdf_info['chars_body'])} karakter, bagian tengah dipotong")
             progress.log(f"{label}: teks siap ({fmt_int(len(text))} karakter, {pages} halaman)" + (f" · {'; '.join(notes)}" if notes else "") + ".")
@@ -2343,6 +2479,8 @@ def analyze_pdfs():
                 "text_chars_body": pdf_info["chars_body"],
                 "text_truncated": pdf_info["truncated"],
                 "references_removed": pdf_info["references_removed"],
+                "references": pdf_info["references"],
+                "doi_detected": pdf_info["doi_detected"],
                 "title": title,
                 "authors": normalise_list(data.get("authors"), 20),
                 "year": safe_string(data.get("year"), "")[:20],

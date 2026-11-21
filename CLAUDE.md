@@ -85,7 +85,7 @@ di-host di server dicatat di bagian 9.2.
 
 `.env` dimuat dari folder `app.py` dengan `override=False` (variabel environment sistem menang atas `.env`).
 **Nilai yang ada di `.env`/environment selalu mengalahkan nilai bawaan kode.** Contoh jebakan: `.env` lama yang berisi
-`MAX_TEXT_CHARS=18000` membuat bawaan DeepSeek (80000) tidak berlaku.
+`MAX_TEXT_CHARS=18000` membuat bawaan DeepSeek (130000) tidak berlaku.
 
 Di mode terkelola ada satu lapis tambahan, `user_auth.prepare_env()`, yang dipanggil tepat setelah `load_dotenv`. Urutan
 prioritas: environment sistem > `.env` > `.env.example` (nilai yang terisi) > bawaan kode. Karena itu `.env` pengguna cukup berisi
@@ -105,7 +105,7 @@ untuk menentukan apakah mode terkelola aktif).
 | `DEEPSEEK_PRICE_INPUT_MISS/HIT`, `DEEPSEEK_PRICE_OUTPUT` | `0.15` / `0.003` / `0.60` | USD per 1 juta token, tarif **off-peak**. |
 | `DEEPSEEK_PEAK_MULTIPLIER` | `2` | Pengali tarif saat jam peak. Isi `1` untuk mematikan. |
 | `USD_TO_IDR` | `18000` | Kurs untuk estimasi rupiah (hanya tampilan). |
-| `MAX_TEXT_CHARS` | 18000 ollama / 80000 deepseek | Teks per PDF yang dikirim ke AI. Dibatasi keras 200000. |
+| `MAX_TEXT_CHARS` | 18000 ollama / 130000 deepseek | Teks isi artikel per PDF yang dikirim ke AI (di luar daftar pustaka). Dibatasi keras 200000. Naik/turunnya angka ini TIDAK memengaruhi citation graph: daftar pustaka diurai kode dari teks yang dibuang, sebelum pemotongan. |
 | `MAX_FILES_PER_BATCH` | 8 / 20 | PDF per upload. |
 | `MAX_FILE_MB` | 12 / 30 | Ukuran per PDF. |
 | `SYNTH_BATCH_SIZE` / `REDUCE_GROUP_SIZE` | 4 / 4 (ollama), 12 / 8 (deepseek) | Ukuran batch sintesis dan grup penggabungan. |
@@ -145,7 +145,8 @@ Form multipart: `pdfs` (banyak), `research_question`, `inclusion`, `exclusion`, 
 Per PDF (berurutan, satu request panjang):
 1. Validasi: ukuran ≤ `MAX_FILE_MB`, signature `%PDF`.
 2. `read_pdf()`: PyMuPDF membaca SEMUA halaman (batas keras 600.000 karakter) dengan penanda `[PAGE n]`.
-   `strip_references()` membuang daftar pustaka, lalu `trim_text()` memotong ke `MAX_TEXT_CHARS` dengan
+   `split_references()` memisahkan daftar pustaka dari isi artikel: isi diteruskan ke AI, daftar pustaka TIDAK dikirim ke AI tetapi diurai kode
+   (`parse_references`, tanpa token) menjadi `record.references`; lalu `trim_text()` memotong ke `MAX_TEXT_CHARS` dengan
    menyimpan 70% awal + sisanya dari AKHIR dokumen (penanda `[... bagian tengah dipotong ...]`). Dulu hanya
    bagian awal yang disimpan sehingga limitations dan kesimpulan hilang. Teks < 100 karakter dianggap PDF scan
    (tidak ada OCR) dan dilaporkan sebagai error file.
@@ -187,16 +188,34 @@ ekstraksinya berhasil, lewat `ccDocs`). Karena itu keduanya tetap muncul walaupu
   DOI, Penulis lengkap): CSV (UTF-8 BOM, koma) dan XLSX tanpa pustaka (`zipStore` = ZIP tanpa kompresi, `xlsxBlob` = sheet inline-string, header
   dibekukan, filter otomatis). Excel berbahasa Indonesia sering memakai titik koma sebagai pemisah CSV, jadi untuk Excel gunakan tombol XLSX.
   Jangan rancukan dengan tab "05 / Matrices" di Peta Topik (klasifikasi silang lain).
-- **Peta Literatur** (`literature-map`, sebelumnya `cooccurrence`) berisi tiga tab dalam halaman: Co-occurrence, Co-authorship, Citation graph (placeholder:
-  daftar pustaka dibuang saat ekstraksi, jadi butuh field baru atau impor). Kelas tab `.lm-tab` (SENGAJA bukan `.taxonomy-tab`, karena pendengar
+- **Peta Literatur** (`literature-map`, sebelumnya `cooccurrence`) berisi tiga tab dalam halaman: Co-occurrence, Co-authorship, Citation graph (lihat di bawah). Kelas tab `.lm-tab` (SENGAJA bukan `.taxonomy-tab`, karena pendengar
   `.taxonomy-tab` mengatur Peta Topik). Id elemen co-occurrence tidak berubah.
 - **Co-authorship** (`caBuild`): simpul = penulis, garis = jumlah artikel bersama; memakai `netLayout`/`netView`/`netCommunities` yang sama. Nama
   dinormalisasi `caParse` (huruf besar/kecil, aksen, "Belakang, Depan", "Han J", akhiran Jr/II): kunci = belakang|nama depan; nama berinisial ("J. Han")
   digabung ke nama lengkap HANYA bila tepat satu kandidat di korpus, bila ambigu dibiarkan terpisah. Penulis ganda dalam satu artikel dihitung sekali.
   Penulis yang sama di beberapa artikel otomatis menghubungkan kelompok-kelompoknya. Pada korpus nyata (17 artikel) belum ada penulis berulang, jadi
   jaringannya 17 kelompok terpisah; ada catatan di atas peta untuk itu. Batas tampilan `#coauthor-max` (default 120).
+- **Citation graph** (`renderCitation`, `ciBuild`; tab ke-3 Peta Literatur): dihitung kode dari `record.references`, tanpa AI. Pembacaan dapus ada di
+  `app.py`: `split_references` → `split_reference_entries` (gaya author-year Elsevier/APA, bernomor `[n]`, dan `1.`; baris yang terpotong digabung, DOI yang
+  terpotong di akhir baris disambung, kepala/kaki halaman berulang dibuang lewat `running_lines`) → `parse_reference_entry` (DOI, tahun, penulis, judul).
+  Tiga tampilan (`#cite-view`): (1) **Bibliographic coupling** (utama, gaya VOSviewer): simpul = artikel, garis = jumlah rujukan yang sama, ukuran lingkaran =
+  jumlah rujukan terbaca; (2) **Sitasi langsung**: panah A→B bila daftar pustaka A memuat DOI B (`doi_detected`||`doi`) atau judul B (cocok sebagai substring
+  setelah normalisasi huruf/angka); artikel yang terbit berdekatan jarang saling mengutip, jadi graf ini bisa nyaris kosong; (3) **Rujukan bersama**: daftar
+  karya yang dikutip ≥2 artikel (tanpa gambar, jadi tombol PNG disembunyikan lewat `syncLitDownload`). Pencocokan rujukan antar artikel memakai DUA kunci per
+  rujukan (penulis+tahun+judul, dan DOI bila ada) yang disatukan union-find, sehingga rujukan yang hanya punya DOI di satu artikel tetap cocok dengan
+  versi tanpa DOI di artikel lain. Keterbatasan yang dijelaskan di UI: dapus tanpa DOI atau berformat berbeda bisa terlewat, jadi hasilnya batas bawah. Pada tiga PDF
+  Elsevier yang diuji, hanya satu yang punya DOI di sebagian entri (38%), dua lainnya tanpa DOI sama sekali; pencocokan penulis+tahun+judul yang menyelamatkannya.
+  Artikel yang `references`-nya kosong (dianalisis sebelum v7) dikecualikan dari coupling dan dilaporkan di catatan; unggah ulang PDF-nya untuk mengisi.
+  Data per rujukan ~400 byte; ada di localStorage proyek dan ikut ekspor/impor JSON dan HTML.
+- **Mode formal untuk Peta Literatur**: tiga peta (kelas SVG `lit-svg`) memakai latar putih TETAP BERWARNA, bukan abu-abu: `LIT_PAL` (palet gelap) dipetakan ke
+  `LIT_FORMAL_PAL` (versi lebih pekat) oleh `LIT_FORMAL_MAP`. Tampilan layar memakai aturan CSS yang disuntikkan dari peta yang sama (`body.formal .lit-svg [fill=…]`),
+  unduhan PNG memakai `formalizeLit`; kedua jalur memakai satu peta sehingga hasilnya sama. Warna ke-8 palet SENGAJA `#ececec`, bukan `#e8e8e8` (warna teks), supaya
+  bisa dipetakan terpisah. Chip legenda diwarnai lewat atribut `data-c`. Diagram lain (taksonomi, system map) tetap abu-abu lewat `filter:invert(1) grayscale(1)`.
+- **Unduh PNG Peta Topik**: tombol `#taxonomy-download` di judul halaman Peta Topik, tampil hanya di tab Hierarchical (wadah `#topic-tree-canvas`) dan Poly-hierarchical (`#poly-canvas`); memakai `downloadNetPng` yang sama dengan peta lain (mode formal = abu-abu seperti tampilan layar). Tab Faceted, List, dan Matrices tidak punya PNG.
+- **Footer**: keterangan "Workspace pribadi · Data proyek tersimpan di browser ini" dan titik pink berkedip (`.private-dot`) ada di footer halaman (`.app-footer`,
+  `#footer-note`), bukan lagi kartu di sidebar; mode ekspor hanya-baca mengganti teks `#footer-note`.
 - **Semua ekspor gambar kini PNG** (`svgToPng`: canvas, skala maks 2, sisi terpanjang maks 8000 px; `downloadNetPng` menyalin SVG, menghapus sorotan, lalu
-  mengikuti Mode formal lewat `formalizeSvg`; untuk Peta Literatur lewat `litFormalizeSvg`: latar putih, warna klaster tetap beragam tapi dipekatkan, palet `LIT_FORMAL` harus sama dengan blok CSS "Peta literatur" di Mode formal). Tombol dan fungsi unduh SVG dihapus (`dg-svg`, `downloadSvg`). Peta Topik tab Hierarchical punya tombol `#taxonomy-png` (memanggil `downloadNetPng('#topic-tree-canvas', ...)`, mengikuti Mode formal lewat `formalizeSvg`). Satu tombol `#litmap-download` mengunduh
+  mengikuti Mode formal lewat `formalizeSvg`). Tombol dan fungsi unduh SVG dihapus (`dg-svg`, `downloadSvg`). Satu tombol `#litmap-download` mengunduh
   tab Peta Literatur yang aktif.
 
 
@@ -386,6 +405,7 @@ membuka bagian \"Dibuang\" secara otomatis dengan peringatan; keputusan akhir te
 keluarga tetap tampil di \"Belum dikelompokkan\". Dua item beranama baku identik di keluarga yang SAMA digabung oleh pohon
 (cara kerja untuk penggabungan manual); di keluarga berbeda tampil terpisah.
 
+`ANALYSIS_VERSION` 7: daftar pustaka diurai kode saat PDF dibaca (`references`, `doi_detected`) untuk citation graph; PDF lama perlu diunggah ulang untuk mengisinya.
 `ANALYSIS_VERSION` 6: prompt ekstraksi meminta nama metode saja (tanpa \"classifier\"/\"framework\") dan melarang topik, dataset,
 metrik, atau komponen model dimasukkan sebagai teknik.
 
@@ -492,6 +512,7 @@ Tambahan v2 (`analysis_version` 2): `research_design{codebook_version, <field>{v
 evidence_verified[, items[{code, basis, evidence, evidence_verified}] untuk field multi-nilai]}, techniques[], warnings[]}`, `evidence_quotes[].verified`, `evidence_quality{quotes_total,
 quotes_verified}`, `text_chars_original` (termasuk daftar pustaka), `text_chars_body` (isi artikel tanpa daftar pustaka; dasar menghitung bagian
 yang dilewati), `text_truncated`, `references_removed`.
+Tambahan v7: `references[]` (daftar pustaka terurai oleh kode, bukan AI; tiap entri `{r: teks mentah ≤240 karakter, d: DOI huruf kecil, y: tahun (boleh berakhiran a/b), a: nama belakang penulis pertama, t: judul (tebakan ≤140 karakter)}`, maks 400 entri) dan `doi_detected` (DOI artikel itu sendiri dari halaman 1-2 PDF; lebih tepercaya daripada `doi` dari AI).
 
 Aturan keputusan (frontend, `handleDecisionChange`): mengubah screening menjadi selain `include` mereset
 `eligibility_decision` ke `pending`; **setiap** perubahan keputusan mengosongkan `state.synthesis`.

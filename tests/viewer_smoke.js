@@ -12,7 +12,7 @@ let okN = 0, failN = 0; const check = (c, m) => { if (c) okN++; else { failN++; 
   check(bodyEl.classList.contains('is-viewer'), 'body diberi kelas is-viewer');
   check(g('research-question').readOnly === true && g('inclusion').readOnly === true, 'formulir ikhtisar terkunci (readOnly)');
   check(g('design-scope').disabled === true && g('design-topic').disabled === true, 'kontrol cakupan/topik desain terkunci');
-  check(/hanya-baca/.test(String(document.querySelector('.private-card').innerHTML)), 'kartu sidebar diganti keterangan hanya-baca');
+  check(/hanya-baca/.test(String(document.querySelector('#footer-note').textContent)), 'footer diganti keterangan hanya-baca');
   const rowsAt = () => (g('articles-body').innerHTML.match(/<tr/g) || []).length;
   check(rowsAt() >= 1, 'tabel artikel terisi saat boot');
   for (const id of ['articles', 'prisma', 'synthesis', 'taxonomy', 'design', 'design-diagram', 'cooccurrence', 'extraction-matrix', 'literature-map', 'system-map']) await go(id);   // 'cooccurrence' = alias lama
@@ -37,6 +37,16 @@ let okN = 0, failN = 0; const check = (c, m) => { if (c) okN++; else { failN++; 
   check(/<svg/.test(g('coauthor-canvas')._html) && /net-node/.test(g('coauthor-canvas')._html), 'Co-authorship tergambar');
   g('coauthor-min').value = '1'; call('coauthor-min', 'change'); await wait();
   check(/<svg/.test(g('coauthor-canvas')._html), 'co-authorship: minimum artikel per penulis 1 tetap tergambar');
+  // Citation graph: bila proyek punya daftar pustaka terurai, tiga tampilan harus jalan; bila tidak, pesan penjelasan
+  if (S.articles.some(a => Array.isArray(a.references) && a.references.length)) {
+    check(/<svg/.test(g('cite-canvas')._html) && /net-node/.test(g('cite-canvas')._html), 'Citation graph (bibliographic coupling) tergambar');
+    g('cite-view').value = 'direct'; call('cite-view', 'change'); await wait();
+    check(/<svg/.test(g('cite-canvas')._html) && /marker-end/.test(g('cite-canvas')._html) || /<svg/.test(g('cite-canvas')._html), 'Citation graph: sitasi langsung tergambar');
+    g('cite-view').value = 'shared'; call('cite-view', 'change'); await wait();
+    check(/cite-shared|Belum ada rujukan yang dikutip/.test(g('cite-canvas')._html), 'Citation graph: daftar rujukan bersama');
+    g('cite-view').value = 'coupling'; call('cite-view', 'change'); await wait();
+    check(/<svg/.test(g('cite-canvas')._html), 'Citation graph: kembali ke coupling tergambar');
+  } else check(/Belum ada data daftar pustaka/.test(g('cite-canvas')._html), 'Citation graph: pesan bila daftar pustaka belum ada');
   check(!document.getElementById('dg-svg') && !document.getElementById('cooccurrence-download'), 'tombol unduh SVG sudah tidak ada (PNG saja)');
   // kontrol grafik tetap hidup
   const cc0 = g('cooccurrence-canvas')._html;
@@ -50,6 +60,12 @@ let okN = 0, failN = 0; const check = (c, m) => { if (c) okN++; else { failN++; 
   check(/<svg/.test(g('system-map-canvas')._html), 'system map: sertakan hierarki konsep tetap tergambar');
   const dg0 = g('dg-canvas')._html; call('dg-refs', 'click'); await wait();
   check(g('dg-canvas')._html !== dg0, 'diagram taksonomi: tombol nomor jurnal mengubah diagram');
+  // Peta topik: tombol Unduh PNG untuk diagram hierarkis (dan poly), tersembunyi di tab lain
+  if (S.synthesis && S.synthesis.taxonomy) {
+    await go('taxonomy'); await wait();
+    check(/id="topic-tree-canvas"/.test(g('taxonomy-content')._html) && /<svg/.test(g('taxonomy-content')._html), 'Peta topik hierarkis punya wadah untuk PNG');
+    check(!g('taxonomy-download').classList.contains('hidden'), 'tombol Unduh PNG tampil di tab hierarkis');
+  }
   // hanya-baca
   check(fetched.length === 0, `tidak ada panggilan jaringan: ${fetched.map(f => f.url).join(', ')}`);
   check(!stored.includes('litreview_studio_project_v1'), 'localStorage proyek tidak ditulis');

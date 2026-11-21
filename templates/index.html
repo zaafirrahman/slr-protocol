@@ -167,7 +167,7 @@
         </section>
 
         <section id="taxonomy" class="page-section">
-          <div class="section-heading page-title-row"><div><p class="eyebrow">PETA TOPIK</p><h1>Peta topik</h1><p class="page-subtitle">Pengelompokan studi menurut apa yang diteliti (domain, masalah, peran prediksi). Dihasilkan AI dari Review Synthesis; bukan taksonomi desain riset.</p></div><button class="button button-secondary" data-go="synthesis">Lihat sintesis ↗</button></div>
+          <div class="section-heading page-title-row"><div><p class="eyebrow">PETA TOPIK</p><h1>Peta topik</h1><p class="page-subtitle">Pengelompokan studi menurut apa yang diteliti (domain, masalah, peran prediksi). Dihasilkan AI dari Review Synthesis; bukan taksonomi desain riset.</p></div><span class="title-actions"><button type="button" class="button button-small" id="taxonomy-download" title="Unduh diagram yang sedang tampil sebagai gambar PNG">Unduh PNG ↗</button><button class="button button-secondary" data-go="synthesis">Lihat sintesis ↗</button></span></div>
           <div class="taxonomy-tabs" role="tablist"><button class="taxonomy-tab active" data-taxonomy="hierarchical">01 / Hierarchical</button><button class="taxonomy-tab" data-taxonomy="poly">02 / Poly-hierarchical</button><button class="taxonomy-tab" data-taxonomy="faceted">03 / Faceted</button><button class="taxonomy-tab" data-taxonomy="flat">04 / List · Flat</button><button class="taxonomy-tab" data-taxonomy="matrix">05 / Matrices</button></div>
           <div id="taxonomy-content" class="panel taxonomy-panel"><div class="empty-state">Jalankan Review Synthesis untuk menghasilkan peta topik dari artikel yang termasuk.</div></div>
         </section>
@@ -224,7 +224,11 @@
             <div id="coauthor-detail" class="panel net-detail hidden"></div>
           </div>
           <div class="lm-pane hidden" data-lm-pane="cite">
-            <div class="panel"><div class="empty-state"><strong>Citation graph belum tersedia.</strong><br>Grafik sitasi memerlukan daftar pustaka tiap artikel, sedangkan ekstraksi saat ini membuang daftar pustaka sebelum teks dikirim ke AI. Tahap ini dikerjakan belakangan.</div></div>
+            <div class="notice notice-warm"><strong>Interpretasi</strong><span>Daftar pustaka tiap artikel dibaca kode saat PDF diunggah (tanpa AI, tanpa token). <b>Bibliographic coupling</b> (gaya VOSviewer): dua artikel terhubung bila mengutip rujukan yang sama, ketebalan garis = jumlah rujukan bersama. <b>Sitasi langsung</b>: panah dari artikel yang mengutip ke artikel yang dikutip, hanya bila keduanya ada di korpus; artikel yang terbit berdekatan jarang saling mengutip, jadi grafik ini bisa nyaris kosong. <b>Rujukan bersama</b>: daftar karya yang dikutip lebih dari satu artikel. Klik lingkaran atau garis untuk detail, seret untuk memindahkan. Ini bukan ekspor resmi VOSviewer.</span></div>
+            <div id="cite-note" class="notice notice-blue hidden"></div>
+            <div class="panel system-map-panel"><div class="map-toolbar"><span id="cite-meta">Belum ada data</span><span class="net-controls"><label class="field-inline">Tampilan <select id="cite-view"><option value="coupling" selected>Bibliographic coupling</option><option value="direct">Sitasi langsung</option><option value="shared">Rujukan bersama (daftar)</option></select></label><label class="field-inline" title="Coupling: minimum rujukan bersama per pasangan artikel. Daftar: minimum artikel yang mengutip">Minimum bersama <select id="cite-min"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option></select></label><button type="button" class="button button-quiet button-small" id="cite-relayout" title="Susun ulang tata letak (membatalkan posisi hasil seretan)">Atur ulang tata letak</button></span></div><div id="cite-canvas" class="system-map-canvas"><div class="empty-state">Citation graph akan tampil setelah artikel diekstraksi.</div></div></div>
+            <div id="cite-legend" class="map-node-legend"></div>
+            <div id="cite-detail" class="panel net-detail hidden"></div>
           </div>
         </section>
 
@@ -236,7 +240,7 @@
           <div id="system-map-detail" class="panel net-detail hidden"></div>
         </section>
 
-        <footer class="app-footer"><span class="footer-id"><span class="private-dot"></span>SLR Protocol</span><span class="footer-sep" aria-hidden="true">·</span><div class="private-card"><strong>Workspace pribadi</strong><small>Data proyek tersimpan di browser ini</small></div></footer>
+        <footer class="app-footer"><span class="footer-line"><span class="private-dot" aria-hidden="true"></span>SLR Protocol · <span id="footer-note">Workspace pribadi · Data proyek tersimpan di browser ini</span></span></footer>
       </div>
     </main>
   </div>

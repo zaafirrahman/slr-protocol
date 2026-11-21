@@ -524,6 +524,19 @@
   // Satu mesin tata letak berbasis gaya (force-directed, deterministik) dan satu penggambar SVG dipakai bersama
   // oleh Co-occurrence, System Map, dan diagram Poly-hierarchy. Warna literal (bukan variabel CSS) agar unduhan SVG berdiri sendiri.
   const NET_PAL = ['#9fd09f', '#dcb85c', '#86b4d8', '#e8906e', '#c9a0dc', '#7fd1c7', '#d98ba0', '#e8e8e8'];
+  // Peta literatur (co-occurrence, co-authorship, citation): palet sendiri. Warna ke-8 sengaja berbeda 1 digit dari warna teks (#e8e8e8)
+  // supaya bisa dipetakan terpisah di mode formal. Mode formal = latar putih, klaster TETAP berwarna (versi lebih pekat agar kontras).
+  const LIT_PAL = ['#9fd09f', '#dcb85c', '#86b4d8', '#e8906e', '#c9a0dc', '#7fd1c7', '#d98ba0', '#ececec'];
+  const LIT_FORMAL_PAL = ['#2f9e55', '#d99100', '#1f78d1', '#e0572b', '#8e44c9', '#0e9a90', '#d6336c', '#6b7280'];
+  const LIT_FORMAL_MAP = {'#000000': '#ffffff', '#101010': '#f2f2f2', '#3a3a3a': '#c4c4c4', '#e8e8e8': '#111111', '#ffffff': '#000000', '#9a9a9a': '#7a7f87'};
+  LIT_PAL.forEach((c, i) => { LIT_FORMAL_MAP[c] = LIT_FORMAL_PAL[i]; });
+  const formalizeLit = svgText => document.body.classList.contains('formal') ? svgText.replace(/#[0-9a-fA-F]{6}\b/g, h => LIT_FORMAL_MAP[h.toLowerCase()] || h) : svgText;
+  (function injectLitFormalCss() {   // tampilan langsung di layar memakai peta warna yang sama dengan unduhan PNG
+    const st = document.createElement('style');
+    st.textContent = Object.entries(LIT_FORMAL_MAP).map(([f, t]) => `body.formal .lit-svg [fill="${f}"]{fill:${t}}body.formal .lit-svg [stroke="${f}"]{stroke:${t}}`).join('')
+      + LIT_FORMAL_PAL.map((c, i) => `body.formal .map-legend-chip>span[data-c="${i}"]{background:${c}!important}`).join('');
+    try { document.head.appendChild(st); } catch (_) { /* DOM minimal (uji): abaikan, hanya memengaruhi tampilan formal */ }
+  })();
   const NET_FONT = "Inter,'Segoe UI',Arial,sans-serif";
   // Nomor rujukan artikel, sama dengan tab Desain Riset (urutan artikel pada cakupan desain).
   function scopeRefs() { const m = {}; designScopeArticles().forEach((a, i) => { m[a.id] = i + 1; }); return m; }
@@ -779,10 +792,10 @@
     const max = Math.max(...B.keep.map(o => o.n)), byKey = new Map(B.keep.map(o => [o.key, o]));
     const nodes = B.keep.map(o => { const lines = netLines(o.label, 26, 2); return {id: o.key, kind: 'circle', r: +(6 + 13 * Math.sqrt(o.n / max)).toFixed(1), label: o.label, lines, lw: Math.max(...lines.map(l => l.length)) * 5.9, lh: lines.length * 12 + 6, fs: 11, o, tip: `${o.label} — ${o.n} artikel`}; });
     const cl = netCommunities(nodes, B.edges), nById = new Map(nodes.map(n => [n.id, n]));
-    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = NET_PAL[cl[i] % NET_PAL.length]; });
+    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = LIT_PAL[cl[i] % LIT_PAL.length]; });
     const nb = new Map(nodes.map(n => [n.id, []])); B.edges.forEach(e => { nb.get(e.a).push([e.b, e.w]); nb.get(e.b).push([e.a, e.w]); });
     netView(canvas, {
-      id: 'cc', cls: 'cooccur-svg', svgId: 'cooccurrence-svg', label: 'Jaringan co-occurrence istilah', nodes, edges: B.edges,
+      id: 'cc', cls: 'cooccur-svg lit-svg', svgId: 'cooccurrence-svg', label: 'Jaringan co-occurrence istilah', nodes, edges: B.edges,
       layout: {linkDist: 110, charge: 1800, spread: 40, w: 900, h: 620},
       edgeWidth: e => Math.min(5, 0.8 + e.w * 0.9), edgeColor: e => { const A = nById.get(e.a), B = nById.get(e.b); return A.cl === B.cl ? A.color : '#9a9a9a'; },
       onSelect: n => {
@@ -794,7 +807,7 @@
       },
     });
     const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
-    legend.innerHTML = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span style="background:${NET_PAL[c % NET_PAL.length]}"></span>Klaster ${c + 1} · ${ns.length} istilah: ${esc(ns.slice(0, 3).map(n => n.label).join(', '))}${ns.length > 3 ? '…' : ''}</span>`).join('');
+    legend.innerHTML = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span data-c="${c % LIT_PAL.length}" style="background:${LIT_PAL[c % LIT_PAL.length]}"></span>Klaster ${c + 1} · ${ns.length} istilah: ${esc(ns.slice(0, 3).map(n => n.label).join(', '))}${ns.length > 3 ? '…' : ''}</span>`).join('');
     meta.innerHTML = `${docs.length} artikel · ${nodes.length} istilah · ${B.edges.length} hubungan · ${groups.size} klaster${B.hidden.length ? ` · disembunyikan karena muncul di ≥60% artikel: <b>${esc(B.hidden.map(o => o.label).join(', '))}</b>` : ''}`;
   }
 
@@ -816,15 +829,14 @@
     img.onerror = () => toast('Gagal membuat PNG.', 'error');
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
   }
-  function downloadNetPng(canvasSel, base, lit = false) {
+  function downloadNetPng(canvasSel, base) {
     const canvas = $(canvasSel), svg = canvas && canvas.querySelector('svg');
     if (!svg) { toast('Belum ada peta untuk diunduh.', 'error'); return; }
     if (canvas._net) canvas._net.clear();
     const clone = svg.cloneNode(true); clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     const vb = String(clone.getAttribute('viewBox') || '').split(/\s+/).map(Number), W = vb[2] || 900, H = vb[3] || 600;
     clone.removeAttribute('style'); clone.setAttribute('width', W); clone.setAttribute('height', H);
-    const xml = new XMLSerializer().serializeToString(clone);
-    svgToPng(lit ? litFormalizeSvg(xml) : formalizeSvg(xml), W, H, `${base}-${topicSlug()}.png`);
+    svgToPng((svg.classList.contains('lit-svg') ? formalizeLit : formalizeSvg)(new XMLSerializer().serializeToString(clone)), W, H, `${base}-${topicSlug()}.png`);
   }
 
   // ---- Peta literatur: tiga tab dalam satu halaman (co-occurrence, co-authorship, citation) ----
@@ -833,8 +845,11 @@
     activeLitTab = ['cooc', 'coauth', 'cite'].includes(tab) ? tab : 'cooc';
     $$('.lm-tab').forEach(b => { const on = b.dataset.lm === activeLitTab; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
     $$('.lm-pane').forEach(p => p.classList.toggle('hidden', p.dataset.lmPane !== activeLitTab));
-    const dl = $('#litmap-download'); if (dl) dl.classList.toggle('hidden', activeLitTab === 'cite');
-    if (activeLitTab === 'cooc') renderCooccurrence(); else if (activeLitTab === 'coauth') renderCoauthor();
+    if (activeLitTab === 'cooc') renderCooccurrence(); else if (activeLitTab === 'coauth') renderCoauthor(); else renderCitation();
+    syncLitDownload();
+  }
+  function syncLitDownload() {   // tampilan daftar (bukan gambar) tidak punya PNG
+    const dl = $('#litmap-download'); if (dl) dl.classList.toggle('hidden', activeLitTab === 'cite' && CI.view === 'shared');
   }
 
   // ---- Co-authorship: penulis sebagai simpul, garis = artikel bersama. Dihitung kode dari `authors`, tanpa AI ----
@@ -894,10 +909,10 @@
     const max = Math.max(...B.keep.map(o => o.n)), byKey = new Map(B.keep.map(o => [o.key, o]));
     const nodes = B.keep.map(o => { const lines = netLines(o.label, 22, 2); return {id: o.key, kind: 'circle', r: +(5 + 8 * Math.sqrt(o.n / max)).toFixed(1), label: o.label, lines, lw: Math.max(...lines.map(l => l.length)) * 5.9, lh: lines.length * 12 + 6, fs: 11, o, tip: `${o.label} — ${o.n} artikel`}; });
     const cl = netCommunities(nodes, B.edges), nById = new Map(nodes.map(n => [n.id, n]));
-    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = NET_PAL[cl[i] % NET_PAL.length]; });
+    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = LIT_PAL[cl[i] % LIT_PAL.length]; });
     const nb = new Map(nodes.map(n => [n.id, []])); B.edges.forEach(e => { nb.get(e.a).push([e.b, e.w]); nb.get(e.b).push([e.a, e.w]); });
     netView(canvas, {
-      id: 'ca', cls: 'cooccur-svg', svgId: 'coauthor-svg', label: 'Jaringan co-authorship penulis', nodes, edges: B.edges,
+      id: 'ca', cls: 'cooccur-svg lit-svg', svgId: 'coauthor-svg', label: 'Jaringan co-authorship penulis', nodes, edges: B.edges,
       layout: {linkDist: 90, charge: 1500, spread: 36, w: 900, h: 620},
       edgeWidth: e => Math.min(5, 0.8 + e.w * 1.1), edgeColor: e => { const A = nById.get(e.a), C = nById.get(e.b); return A.cl === C.cl ? A.color : '#9a9a9a'; },
       onSelect: n => {
@@ -911,8 +926,122 @@
     });
     const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
     const gl = [...groups.entries()].sort((a, b) => a[0] - b[0]), SHOW = 12;
-    legend.innerHTML = gl.slice(0, SHOW).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span style="background:${NET_PAL[c % NET_PAL.length]}"></span>Kelompok ${c + 1} · ${ns.length} penulis: ${esc(ns.slice(0, 2).map(n => n.label).join(', '))}${ns.length > 2 ? '…' : ''}</span>`).join('') + (gl.length > SHOW ? `<span class="map-legend-chip">+ ${gl.length - SHOW} kelompok lain</span>` : '');
+    legend.innerHTML = gl.slice(0, SHOW).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span data-c="${c % LIT_PAL.length}" style="background:${LIT_PAL[c % LIT_PAL.length]}"></span>Kelompok ${c + 1} · ${ns.length} penulis: ${esc(ns.slice(0, 2).map(n => n.label).join(', '))}${ns.length > 2 ? '…' : ''}</span>`).join('') + (gl.length > SHOW ? `<span class="map-legend-chip">+ ${gl.length - SHOW} kelompok lain</span>` : '');
     meta.innerHTML = `${docs.length} artikel · ${B.total} penulis${nodes.length < B.total ? ` (ditampilkan ${nodes.length})` : ''} · ${B.edges.length} hubungan · ${groups.size} kelompok · ${B.repeat} penulis di &gt;1 artikel${B.noAuth ? ` · ${B.noAuth} artikel tanpa data penulis` : ''}`;
+  }
+
+  // ---- Citation graph: dihitung kode dari daftar pustaka yang diurai saat PDF dibaca (record.references), tanpa AI ----
+  // Tiga tampilan: bibliographic coupling (gaya VOSviewer: dua artikel terhubung bila mengutip rujukan yang sama), sitasi langsung
+  // (A mengutip B, keduanya di korpus), dan daftar rujukan yang dipakai bersama. Artikel baru jarang saling mengutip, tetapi
+  // hampir selalu berbagi rujukan: itu sebabnya coupling jadi tampilan utama.
+  const CI = {view: 'coupling'};
+  const ciN = x => String(x == null ? '' : x).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ciRefs = a => list(a.references || (a.extraction || {}).references);
+  const ciDoi = a => String(a.doi_detected || a.doi || '').toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, '').trim();
+  function ciKeys(r) {   // dua kunci per rujukan: judul+penulis+tahun, dan DOI bila ada; dua daftar yang hanya cocok di salah satunya tetap tersambung
+    const t = ciN(r.t), body = t.length >= 12 ? t.slice(0, 40) : ciN(r.r).slice(0, 60);
+    const ks = ['t:' + ciN(r.a) + String(r.y || '').slice(0, 4) + body];
+    if (r.d) ks.push('d:' + String(r.d).toLowerCase());
+    return ks;
+  }
+  const ciRefText = r => `${esc(r.a || '?')}${r.y ? ` (${esc(r.y)})` : ''}${r.t ? `: ${esc(r.t)}` : ''}`;
+  function ciBuild(docs) {
+    const withRefs = docs.filter(a => ciRefs(a).length), parent = new Map();
+    const find = x => { let r = x; while (parent.get(r) !== r) r = parent.get(r); while (parent.get(x) !== r) { const nx = parent.get(x); parent.set(x, r); x = nx; } return r; };
+    const perDoc = withRefs.map(a => ciRefs(a).map(r => {
+      const ks = ciKeys(r); ks.forEach(k => { if (!parent.has(k)) parent.set(k, k); });
+      for (let i = 1; i < ks.length; i++) { const ra = find(ks[0]), rb = find(ks[i]); if (ra !== rb) parent.set(ra, rb); }
+      return {r, k: ks[0]};
+    }));
+    const refInfo = new Map();
+    withRefs.forEach((a, i) => perDoc[i].forEach(({r, k}) => { const c = find(k); let o = refInfo.get(c); if (!o) refInfo.set(c, o = {r, docs: new Set()}); o.docs.add(a.id); }));
+    const pairs = new Map(), shared = [];
+    refInfo.forEach(o => {
+      if (o.docs.size < 2) return; shared.push(o);
+      const ids = [...o.docs].sort();
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) { const k = ids[i] + '\u0001' + ids[j]; let q = pairs.get(k); if (!q) pairs.set(k, q = {a: ids[i], b: ids[j], w: 0, refs: []}); q.w++; q.refs.push(o.r); }
+    });
+    shared.sort((x, y) => y.docs.size - x.docs.size || String(x.r.a).localeCompare(String(y.r.a)));
+    const direct = [];
+    withRefs.forEach(a => {
+      const rs = ciRefs(a);
+      docs.forEach(b => {
+        if (b.id === a.id) return;
+        const bd = ciDoi(b), bt = ciN((b.extraction || b).title);
+        if (rs.some(r => (bd && r.d === bd) || (bt.length >= 20 && ciN(r.r).includes(bt)))) direct.push({a: a.id, b: b.id, w: 1});
+      });
+    });
+    return {withRefs, missing: docs.length - withRefs.length, coupling: [...pairs.values()].sort((p, q) => q.w - p.w), direct, shared, totalRefs: withRefs.reduce((n, a) => n + ciRefs(a).length, 0)};
+  }
+  function ciLabels(docs) {   // "Guo et al. (2026)"; dua artikel dengan label sama diberi akhiran a, b
+    const base = docs.map(a => mxAuthor(a.extraction || a)), cnt = new Map(), seen = new Map();
+    base.forEach(l => cnt.set(l, (cnt.get(l) || 0) + 1));
+    return base.map(l => { if (cnt.get(l) === 1) return l; const i = seen.get(l) || 0; seen.set(l, i + 1); return l.replace(/\)$/, String.fromCharCode(97 + i) + ')'); });
+  }
+  function renderCitation() {
+    const canvas = $('#cite-canvas'); if (!canvas) return;
+    const meta = $('#cite-meta'), legend = $('#cite-legend'), detail = $('#cite-detail'), note = $('#cite-note');
+    detail.classList.add('hidden'); legend.innerHTML = ''; note.classList.add('hidden');
+    const view = $('#cite-view') ? $('#cite-view').value : 'coupling', min = Number($('#cite-min') ? $('#cite-min').value : 1) || 1;
+    CI.view = view; syncLitDownload();
+    const docs = ccDocs();
+    if (!docs.length) { canvas.innerHTML = '<div class="empty-state">Belum ada artikel hasil ekstraksi. Unggah dan ekstraksi PDF terlebih dahulu.</div>'; meta.textContent = 'Belum ada data'; return; }
+    const B = ciBuild(docs), refs = scopeRefs(), notes = [];
+    if (B.missing) notes.push(`${B.missing} dari ${docs.length} artikel belum punya data daftar pustaka karena dianalisis dengan versi lama. Unggah ulang PDF-nya agar daftar pustaka ikut terbaca (keputusan screening dipertahankan).`);
+    const showNote = () => { if (notes.length) { note.innerHTML = '<strong>Catatan</strong><span>' + notes.map(esc).join(' ') + '</span>'; note.classList.remove('hidden'); } };
+    if (!B.withRefs.length) {
+      canvas.innerHTML = '<div class="empty-state"><strong>Belum ada data daftar pustaka.</strong><br>Daftar pustaka dibaca kode saat PDF diunggah (tanpa AI, tanpa token). Artikel yang sudah ada di proyek ini dianalisis sebelum fitur itu ada, jadi unggah ulang PDF yang sama untuk mengisinya.</div>';
+      meta.textContent = `${docs.length} artikel · belum ada daftar pustaka`; return;
+    }
+    const chips = ids => [...ids].map(id => `<span class="dg-ref">[${esc(refs[id] || '?')}]</span>`).join(' ');
+    if (view === 'shared') {
+      const rows = B.shared.filter(o => o.docs.size >= Math.max(2, min));
+      meta.innerHTML = `${B.withRefs.length} artikel · ${B.totalRefs} rujukan terbaca · ${B.shared.length} rujukan dipakai ≥2 artikel`;
+      canvas.innerHTML = rows.length ? `<ol class="cite-shared">${rows.map(o => `<li><span class="cite-count">${o.docs.size} artikel</span><div>${ciRefText(o.r)}<div class="cite-chips">${chips(o.docs)}</div></div></li>`).join('')}</ol>` : '<div class="empty-state">Belum ada rujukan yang dikutip oleh lebih dari satu artikel pada minimum ini.</div>';
+      notes.push('Pencocokan memakai DOI dan kombinasi penulis-tahun-judul; daftar pustaka tanpa DOI atau dengan format berbeda bisa terlewat, jadi angka ini batas bawah.');
+      showNote(); return;
+    }
+    const wantDirect = view === 'direct', lab = ciLabels(docs), labelOf = new Map(docs.map((a, i) => [a.id, lab[i]])), nodeDocs = wantDirect ? docs : B.withRefs;   // sitasi langsung: artikel tanpa daftar pustaka tetap bisa dikutip
+    const edges = (wantDirect ? B.direct : B.coupling.filter(q => q.w >= min)).map(q => ({a: q.a, b: q.b, w: q.w, refs: q.refs, label: wantDirect ? 'mengutip' : `${q.w} rujukan bersama`}));
+    const maxRefs = Math.max(1, ...nodeDocs.map(a => ciRefs(a).length));
+    const nodes = nodeDocs.map(a => {
+      const l = labelOf.get(a.id), lines = netLines(l, 22, 2), n = ciRefs(a).length;
+      return {id: a.id, kind: 'circle', r: +(7 + 11 * Math.sqrt(n / maxRefs)).toFixed(1), label: l, lines, lw: Math.max(...lines.map(x => x.length)) * 5.9, lh: lines.length * 12 + 6, fs: 11, a, n, tip: `${l} · ${(a.extraction || a).title || ''} · ${n} rujukan terbaca`};
+    });
+    const cl = netCommunities(nodes, edges), nById = new Map(nodes.map(n => [n.id, n]));
+    nodes.forEach((n, i) => { n.cl = cl[i]; n.color = LIT_PAL[cl[i] % LIT_PAL.length]; });
+    const artLine = n => `<span class="dg-ref">[${esc(refs[n.id] || '?')}]</span> ${esc((n.a.extraction || n.a).title || '(tanpa judul)')}`;
+    if (!edges.length) notes.push(wantDirect ? 'Tidak ada artikel di korpus yang saling mengutip. Ini wajar bila artikelnya terbit berdekatan (artikel hanya bisa mengutip yang terbit lebih dulu). Lihat Bibliographic coupling untuk kemiripan lewat rujukan bersama.' : 'Belum ada dua artikel yang mengutip rujukan yang sama pada minimum ini. Turunkan minimum menjadi 1.');
+    netView(canvas, {
+      id: 'ci', cls: 'cooccur-svg lit-svg', svgId: 'cite-svg', label: wantDirect ? 'Graf sitasi langsung antarartikel' : 'Bibliographic coupling antarartikel', directed: wantDirect, nodes, edges,
+      layout: {linkDist: 130, charge: 2000, spread: 46, w: 900, h: 560},
+      edgeWidth: e => Math.min(6, 1.2 + e.w * (wantDirect ? 1.4 : 0.8)), edgeColor: e => { const A = nById.get(e.a), C = nById.get(e.b); return A.cl === C.cl ? A.color : '#9a9a9a'; },
+      onEdge: e => {
+        const A = nById.get(e.a), C = nById.get(e.b);
+        detail.innerHTML = wantDirect
+          ? `<h3>${esc(A.label)} → ${esc(C.label)}</h3><div class="dim">${esc(A.label)} mengutip ${esc(C.label)} (cocok lewat DOI atau judul pada daftar pustaka).</div>`
+          : `<h3>${esc(A.label)} ↔ ${esc(C.label)}</h3><div class="dim">${e.w} rujukan yang sama</div><ul>${e.refs.map(r => `<li>${ciRefText(r)}</li>`).join('')}</ul>`;
+        detail.classList.remove('hidden');
+      },
+      onSelect: n => {
+        if (!n) { detail.classList.add('hidden'); return; }
+        let body;
+        if (wantDirect) {
+          const out = edges.filter(e => e.a === n.id).map(e => nById.get(e.b)), inn = edges.filter(e => e.b === n.id).map(e => nById.get(e.a));
+          body = `<p><b>Mengutip:</b></p>${out.length ? `<ul>${out.map(x => `<li>${artLine(x)}</li>`).join('')}</ul>` : '<p class="dim">Tidak ada artikel korpus yang dikutip.</p>'}<p><b>Dikutip oleh:</b></p>${inn.length ? `<ul>${inn.map(x => `<li>${artLine(x)}</li>`).join('')}</ul>` : '<p class="dim">Tidak ada artikel korpus yang mengutipnya.</p>'}`;
+        } else {
+          const co = edges.filter(e => e.a === n.id || e.b === n.id).map(e => [nById.get(e.a === n.id ? e.b : e.a), e.w]).sort((p, q) => q[1] - p[1]);
+          body = co.length ? `<p><b>Berbagi rujukan dengan:</b></p><ul>${co.map(([x, w]) => `<li>${artLine(x)} <span class="dim">(${w} rujukan bersama)</span></li>`).join('')}</ul><p class="dim">Klik sebuah garis untuk melihat rujukan yang dibagi.</p>` : '<p class="dim">Tidak berbagi rujukan dengan artikel lain pada pengaturan ini.</p>';
+        }
+        detail.innerHTML = `<h3>${esc(n.label)}</h3><div class="dim">${esc((n.a.extraction || n.a).title || '')} · ${n.n} rujukan terbaca · klaster ${n.cl + 1}</div>${body}`;
+        detail.classList.remove('hidden');
+      },
+    });
+    const groups = new Map(); nodes.forEach(n => { if (!groups.has(n.cl)) groups.set(n.cl, []); groups.get(n.cl).push(n); });
+    legend.innerHTML = [...groups.entries()].sort((a, b) => a[0] - b[0]).slice(0, 12).map(([c, ns]) => `<span class="map-legend-chip" title="${esc(ns.map(n => n.label).join(', '))}"><span data-c="${c % LIT_PAL.length}" style="background:${LIT_PAL[c % LIT_PAL.length]}"></span>Klaster ${c + 1} · ${ns.length} artikel: ${esc(ns.slice(0, 2).map(n => n.label).join(', '))}${ns.length > 2 ? '…' : ''}</span>`).join('');
+    meta.innerHTML = `${B.withRefs.length} artikel · ${B.totalRefs} rujukan terbaca · ${B.shared.length} rujukan dipakai bersama · ${edges.length} hubungan · ${groups.size} klaster`;
+    notes.push('Ukuran lingkaran = jumlah rujukan terbaca. Pencocokan memakai DOI dan kombinasi penulis-tahun-judul; daftar pustaka tanpa DOI atau dengan format berbeda bisa terlewat, jadi hubungan yang tampil adalah batas bawah.');
+    showNote();
   }
 
   // ---- Matriks ekstraksi (tahap 3): Author, Method, Object, Findings per artikel. Dibangun kode dari hasil ekstraksi; tanpa AI ----
@@ -1134,7 +1263,7 @@
         + `<text font-family="${NET_FONT}" font-size="12" font-weight="${root0 ? 800 : n.depth === 1 ? 700 : 500}" fill="${root0 ? '#000000' : n.depth === 1 ? col : '#e8e8e8'}">${L.map((t, i) => `<tspan x="${n.depth > 1 ? 19 : 12}" y="${(top + i * 14.5).toFixed(1)}"${i >= n.lines.length ? ` fill="#9a9a9a" font-size="11" font-weight="400"` : ''}>${esc(t)}</tspan>`).join('')}</text>`
         + (n.depth && n.ids.length ? `<rect x="${n.w - 28}" y="-8.5" width="23" height="17" rx="6" fill="${col}" fill-opacity="0.18"/><text x="${n.w - 16.5}" y="4" text-anchor="middle" font-family="${NET_FONT}" font-size="11" font-weight="700" fill="${col}">${n.ids.length}</text>` : '') + '</g>';
     });
-    return `<div id="topic-tree-canvas" class="system-map-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
+    return `<div class="system-map-canvas" id="topic-tree-canvas"><svg class="taxonomy-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:none;min-width:0;max-height:none" role="img" aria-label="Diagram peta topik"><rect width="100%" height="100%" fill="#000000"/><g transform="translate(${PAD},${PAD})">${links}${boxes}</g></svg></div>`;
   }
   // Poly-hierarchy turunan kode (dipakai bila AI tidak mengisinya): konsep irisan = pasangan subkategori (daun) dari dua cabang
   // berbeda yang berbagi >= 2 artikel; induknya kedua daun itu, article_ids = artikel yang sama. Maksimal 12 irisan terkuat.
@@ -1210,7 +1339,7 @@
   function renderResearchDesignBlock(a) {
     const d = a.research_design;
     if (!d) return `<div class="detail-block" style="grid-column:1/-1"><h4>DESAIN RISET (RESEARCH ONION)</h4><p>Artikel ini dianalisis dengan versi lama (v${esc(a.analysis_version || 1)}) sehingga belum punya label desain riset. Unggah ulang PDF yang sama untuk menganalisis ulang; keputusan screening Anda dipertahankan.</p></div>`;
-    const outdated = (a.analysis_version || 1) < currentAnalysisVersion() ? `<p class="citation-note">Dianalisis dengan versi v${esc(a.analysis_version || 1)}; versi terbaru v${esc(currentAnalysisVersion())} memakai aturan label yang lebih ketat. Unggah ulang PDF yang sama untuk memperbarui (keputusan screening dipertahankan).</p>` : '';
+    const outdated = (a.analysis_version || 1) < currentAnalysisVersion() ? `<p class="citation-note">Dianalisis dengan versi v${esc(a.analysis_version || 1)}; versi terbaru v${esc(currentAnalysisVersion())} memakai aturan label yang lebih ketat dan membaca daftar pustaka untuk citation graph. Unggah ulang PDF yang sama untuk memperbarui (keputusan screening dipertahankan).</p>` : '';
     const rows = Object.keys(((codebook || {}).fields) || {}).length ? Object.keys(codebook.fields) : ['philosophy','approach','methodological_choice','strategy','time_horizon','data_source','analysis'];
     const body = rows.map(field => {
       const item = d[field] || {};
@@ -1898,6 +2027,7 @@ ${refnote}
   function renderTaxonomy() {
     const s = state.synthesis;
     const box = $('#taxonomy-content');
+    const tdl = $('#taxonomy-download'); if (tdl) tdl.classList.toggle('hidden', !['hierarchical', 'poly'].includes(activeTaxonomy));   // PNG hanya untuk dua diagram
     if (s && s.taxonomy_status === 'failed') {
       box.innerHTML = `<div class="empty-state"><strong>Sintesis berhasil, tetapi taxonomy belum berhasil dibuat.</strong><p>${esc(s.taxonomy_error || 'Model tidak menghasilkan struktur taxonomy yang dapat dipakai.')}</p><p>Sintesis tidak perlu diulang: klik tombol di bawah untuk membuat ulang peta topik saja (satu panggilan AI).</p><button type="button" class="button" id="taxonomy-retry">Buat ulang peta topik</button></div>`;
       return;
@@ -1909,7 +2039,7 @@ ${refnote}
       const levels = list(h.levels), cov = s.taxonomy_coverage;
       const principle = levels.length ? `<p class="taxonomy-help"><strong>Prinsip pengelompokan:</strong> ${levels.map(l=>`level ${esc(l.level)}: ${esc(l.principle)}`).join(' · ')}</p>` : '';
       const covLine = cov ? `<p class="taxonomy-help">Cakupan: ${esc(cov.covered)}/${esc(cov.total)} artikel punya tempat di hierarki${list(cov.uncovered_ids).length ? ` · belum terpetakan: ${list(cov.uncovered_ids).map(id=>esc((findArticle(id)||{}).title||id)).join('; ')}` : ''}${cov.parent_fixes ? ` · ${esc(cov.parent_fixes)} relasi induk diperbaiki otomatis` : ''}.</p>` : '';
-      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? '<div class="map-toolbar"><span>Diagram hierarkis mengikuti Mode formal saat diunduh.</span><button type="button" class="button button-secondary button-small" id="taxonomy-png">Unduh PNG ↗</button></div>' + topicTreeSvg(root,nodes) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
+      box.innerHTML = `<div class="synth-eyebrow">HIERARCHICAL TAXONOMY</div><h2 class="taxonomy-title">Peta topik: apa yang diteliti</h2><p class="taxonomy-help">Diusulkan AI dari artikel terpilih, lalu dirapikan dan diperiksa cakupannya oleh kode. Periksa definisi dan pengelompokan sebelum dipakai.</p>${principle}${covLine}${nodes.length ? topicTreeSvg(root,nodes) + '<div class="topic-outline">' + renderTopicOutline(root,nodes) + '</div>' : '<div class="empty-state">Belum ada peta topik yang dihasilkan.</div>'}`;
     } else if (activeTaxonomy === 'faceted') {
       const f=s.taxonomy.faceted||{}; const facets=list(f.facets);
       box.innerHTML = `<div class="synth-eyebrow">FACETED TAXONOMY</div><h2 class="taxonomy-title">Klasifikasi berdasarkan beberapa facet</h2><p class="taxonomy-help">Setiap kolom menunjukkan dimensi atribut yang berbeda untuk mendeskripsikan studi atau konsep.</p>${facets.length ? `<div class="facet-diagram">${facets.map((facet,i)=>`<div class="facet-column"><div class="facet-head">${esc(facet.name||'Facet '+(i+1))}</div>${list(facet.values).map(v=>`<div class="facet-value"><strong>${esc(v.name||'Kategori')}</strong><small>${esc(v.description||'')}</small><span>${list(v.article_ids).length} artikel</span></div>`).join('')}</div>`).join('')}</div>` : '<div class="empty-state">Belum ada facet yang dihasilkan. Jalankan ulang sintesis untuk membuat klasifikasi multi-dimensi.</div>'}`;
@@ -1964,18 +2094,6 @@ ${refnote}
   // Mode formal: warna diagram non-taksonomi dipetakan ke abu-abu di atas putih (untuk unduhan SVG)
   const FORMAL_MAP = {'#000000':'#ffffff','#101010':'#f2f2f2','#3a3a3a':'#c4c4c4','#e8e8e8':'#111111','#ffffff':'#000000','#9a9a9a':'#555555','#9fd09f':'#3a3a3a','#86b4d8':'#6a6a6a','#e8906e':'#8f8f8f','#dcb85c':'#b0b0b0','#c9a0dc':'#7d7d7d','#7fd1c7':'#999999','#d98ba0':'#a5a5a5'};
   const formalizeSvg = s => document.body.classList.contains('formal') ? s.replace(/#[0-9a-fA-F]{6}\b/g, h => FORMAL_MAP[h.toLowerCase()] || h) : s;
-  // Peta literatur (co-occurrence & co-authorship), Mode formal: latar putih, warna klaster tetap beragam tapi dipekatkan agar kontras di atas putih.
-  // Sinkron dengan blok "Peta literatur" di Mode formal pada style.css (tampilan layar memakai CSS, unduhan PNG memakai fungsi ini).
-  const LIT_FORMAL = {'#9fd09f':'#2f9e44','#dcb85c':'#d4a000','#86b4d8':'#1c7ed6','#e8906e':'#e8590c','#c9a0dc':'#9c36b5','#7fd1c7':'#0ca678','#d98ba0':'#d6336c','#e8e8e8':'#495057'};
-  const litFormalizeSvg = s => !document.body.classList.contains('formal') ? s : s.replace(/<(rect|circle|path|text)\b[^>]*>/g, tag => {
-    const isText = tag.startsWith('<text');
-    tag = tag.replace(/\b(fill|stroke)="(#[0-9a-fA-F]{6})"/g, (m, attr, hex) => {
-      hex = hex.toLowerCase();
-      const to = isText ? (hex === '#000000' ? '#ffffff' : '#111111') : hex === '#000000' ? '#ffffff' : hex === '#9a9a9a' ? '#868e96' : LIT_FORMAL[hex];
-      return to ? `${attr}="${to}"` : m;
-    });
-    return tag.indexOf('class="net-edge"') > -1 ? tag.replace('stroke-opacity="0.6"', 'stroke-opacity="0.75"') : tag;
-  });
   async function checkHealth() {
     const pill = $('#ai-status');
     try {
@@ -2168,7 +2286,7 @@ ${refnote}
     const wrap = $('.page-wrap'); if (wrap) wrap.insertBefore(banner, wrap.firstChild);
     ['research-question', 'source-name', 'search-date', 'search-query', 'inclusion', 'exclusion'].forEach(id => { const el = $('#' + id); if (el) el.readOnly = true; });
     ['guide-context', 'design-topic', 'design-scope'].forEach(id => { const el = $('#' + id); if (el) el.disabled = true; });
-    const card = $('.private-card'); if (card) card.innerHTML = '<strong>Ekspor hanya-baca</strong><small>Data tertanam di berkas ini</small>';
+    const fnote = $('#footer-note'); if (fnote) fnote.textContent = 'Ekspor hanya-baca · Data tertanam di berkas ini';
     const copy = $('.hero-copy'); if (copy) copy.textContent = 'Ringkasan proyek systematic review ini: PRISMA, sintesis, matriks ekstraksi, peta topik, peta literatur, system map, dan taksonomi desain riset. Grafik tetap bisa dikontrol.';
     const exp = $('#export-json'); if (exp) exp.textContent = 'Unduh data (JSON) ↗';
     const block = (types, selector) => types.forEach(t => document.addEventListener(t, e => {
@@ -2188,7 +2306,7 @@ ${refnote}
     } catch(error) { toast(`Impor gagal: ${error.message}`, 'error'); }
   }
   function renderAll() {
-    renderUsage();renderMetrics();renderArticles();renderPrisma();renderSynthesis();renderTaxonomy();renderSystemMap();renderCooccurrence();renderCoauthor();renderMatrix();
+    renderUsage();renderMetrics();renderArticles();renderPrisma();renderSynthesis();renderTaxonomy();renderSystemMap();renderCooccurrence();renderCoauthor();renderCitation();renderMatrix();
   }
   function handleDecisionChange(event) {
     const el=event.target;
@@ -2680,11 +2798,13 @@ ${refnote}
     $('#cooccurrence-relayout')?.addEventListener('click',renderCooccurrence);
     ['#system-map-max','#system-map-main','#system-map-hier'].forEach(id=>$(id)?.addEventListener('change',renderSystemMap));
     $('#system-map-relayout')?.addEventListener('click',renderSystemMap);
-    $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); else if(e.target.closest('#taxonomy-png')) downloadNetPng('#topic-tree-canvas','peta-topik-hierarkis'); });
+    $('#taxonomy-content')?.addEventListener('click',e=>{ if(e.target.closest('#taxonomy-retry')) retryTaxonomy(); });
     $$('.lm-tab').forEach(b=>b.addEventListener('click',()=>setLitTab(b.dataset.lm)));
-    $('#litmap-download')?.addEventListener('click',()=>{ if(activeLitTab==='cooc') downloadNetPng('#cooccurrence-canvas','peta-co-occurrence',true); else if(activeLitTab==='coauth') downloadNetPng('#coauthor-canvas','peta-co-authorship',true); });
+    $('#litmap-download')?.addEventListener('click',()=>{ if(activeLitTab==='cooc') downloadNetPng('#cooccurrence-canvas','peta-co-occurrence'); else if(activeLitTab==='coauth') downloadNetPng('#coauthor-canvas','peta-co-authorship'); else downloadNetPng('#cite-canvas','peta-citation-graph'); });
     ['#coauthor-min','#coauthor-max'].forEach(id=>$(id)?.addEventListener('change',renderCoauthor));
     $('#coauthor-relayout')?.addEventListener('click',renderCoauthor);
+    ['#cite-view','#cite-min'].forEach(id=>$(id)?.addEventListener('change',renderCitation));
+    $('#cite-relayout')?.addEventListener('click',renderCitation);
     $('#matrix-filter')?.addEventListener('input',renderMatrix);
     $('#matrix-expand')?.addEventListener('click',()=>{ MX.open=!MX.open; const b=$('#matrix-expand'); b.textContent=MX.open?'Ringkas semua teks':'Buka semua teks'; b.setAttribute('aria-pressed',MX.open?'true':'false'); renderMatrix(); });
     $('#matrix-content')?.addEventListener('click',e=>{ const t=e.target.closest&&e.target.closest('.mx-toggle'); if(!t) return; const cell=t.closest('.mx-cell'); if(!cell) return; const on=cell.classList.toggle('open'); t.textContent=on?'ringkas':'selengkapnya'; });
@@ -2707,6 +2827,7 @@ ${refnote}
     document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='o'){e.preventDefault();$('#import-json-file').click();}});
     $('#print-prisma').addEventListener('click',()=>{navigate('prisma');setTimeout(()=>window.print(),200);});
     $('#system-map-download').addEventListener('click',()=>downloadNetPng('#system-map-canvas','system-map'));
+    $('#taxonomy-download')?.addEventListener('click',()=>{ if(activeTaxonomy==='poly') downloadNetPng('#poly-canvas','peta-topik-poly-hierarki'); else downloadNetPng('#topic-tree-canvas','peta-topik-hierarki'); });
     // Persist form edits even if the user navigates away before pressing save.
     ['research-question','source-name','search-date','search-query','inclusion','exclusion'].forEach(id=>$('#'+id).addEventListener('change',()=>saveMetaFromForm(false)));
   }
