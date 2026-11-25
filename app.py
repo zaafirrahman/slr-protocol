@@ -113,8 +113,8 @@ MAX_FILE_MB = _env_int("MAX_FILE_MB", 30 if IS_API else 12)
 MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 MAX_TEXT_CHARS_HARD = 200000  # pengaman: skripsi/buku tidak boleh membengkakkan tagihan
 MAX_TEXT_CHARS = min(_env_int("MAX_TEXT_CHARS", 130000 if IS_API else 18000, minimum=1000), MAX_TEXT_CHARS_HARD)
-SYNTH_BATCH_SIZE = _env_int("SYNTH_BATCH_SIZE", 10 if IS_API else 4, minimum=2)      # artikel per batch sintesis
-REDUCE_GROUP_SIZE = _env_int("REDUCE_GROUP_SIZE", 8 if IS_API else 4, minimum=2)     # ringkasan per penggabungan
+SYNTH_BATCH_SIZE = _env_int("SYNTH_BATCH_SIZE", 8 if IS_API else 4, minimum=2)      # artikel per batch sintesis
+REDUCE_GROUP_SIZE = _env_int("REDUCE_GROUP_SIZE", 12 if IS_API else 4, minimum=2)     # ringkasan per penggabungan
 LLM_OUTPUT_SCALE = float(os.getenv("LLM_OUTPUT_SCALE", "1.75" if IS_API else "1"))   # pengali batas token output (hanya plafon)
 KEEP_SERVER_PDFS = _env_bool("KEEP_SERVER_PDFS", False)  # salin PDF asli ke data/pdfs (default mati)
 KEEP_SERVER_JSON = _env_bool("KEEP_SERVER_JSON", False)  # salin hasil ekstraksi ke data/json (default mati)
@@ -1441,6 +1441,97 @@ Kembalikan JSON dengan urutan key ini:
 }}
 """
 
+def _unalias(obj, real_of):
+    """Kembalikan alias ID pendek (A1, A2, ...) ke ID artikel asli di seluruh struktur."""
+    def m(value):
+        return real_of.get(str(value).strip().upper())
+    if isinstance(obj, list):
+        return [_unalias(x, real_of) for x in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for key, value in obj.items():
+            if key == "article_ids" and isinstance(value, list):
+                out[key] = list(dict.fromkeys(r for r in (m(i) for i in value) if r))
+            elif key == "article_id" and isinstance(value, str):
+                out[key] = m(value) or ""
+            else:
+                out[key] = _unalias(value, real_of)
+        return out
+    return obj
+
+
+def _cited_aliases(result):
+    cited = set()
+    for sec in ("main_themes", "agreements", "contradictions", "research_gaps"):
+        for item in result.get(sec) or []:
+            if isinstance(item, dict):
+                for i in item.get("article_ids") or []:
+                    cited.add(str(i).strip().upper())
+    return cited
+
+
+def coverage_prompt(uncovered, themes, rq):
+    """Artikel INCLUDE yang belum dikutip di bagian sintesis mana pun: tempatkan ke tema atau buat tema baru."""
+    brief = [{"id": a["id"], "title": str(a.get("title", ""))[:160], "year": a.get("year", ""),
+              "objective": str(a.get("objective", ""))[:260], "methods": str(a.get("methods", ""))[:260],
+              "findings": [str(x)[:200] for x in (a.get("findings") or [])[:4]],
+              "topic_tags": (a.get("topic_tags") or [])[:5]} for a in uncovered]
+    theme_list = [{"name": t.get("name"), "description": str(t.get("description", ""))[:240]}
+                  for t in themes if isinstance(t, dict)]
+    return f"""Anda memeriksa kelengkapan sintesis systematic literature review. Artikel di bawah sudah diputuskan INCLUDE tetapi belum dikutip di tema, kesepakatan, kontradiksi, maupun gap mana pun.
+Tugas: tempatkan SETIAP artikel ke satu tema yang paling cocok (gunakan nama tema persis dari daftar) dan tulis satu kalimat kontribusinya. Bila sebuah artikel jelas tidak cocok ke tema mana pun, kelompokkan ke tema baru (boleh beberapa artikel per tema baru). Jangan mengarang temuan; gunakan hanya data artikel. Jawab JSON valid saja.
+
+Research question: {rq or '(belum ditentukan)'}
+
+TEMA YANG ADA:
+{json.dumps(theme_list, ensure_ascii=False)}
+
+ARTIKEL YANG BELUM TERKUTIP:
+{json.dumps(brief, ensure_ascii=False)}
+
+JSON:
+{{
+ "assignments":[{{"article_id":"ID","theme":"nama tema persis dari daftar","note":"satu kalimat kontribusi artikel pada tema"}}],
+ "new_themes":[{{"name":"tema baru","description":"definisi operasional","synthesis":"2-3 kalimat","article_ids":["ID"],"confidence":"tinggi|sedang|rendah"}}]
+}}
+"""
+
+
+def _theme_article_slim(a):
+    return {
+        "id": a.get("id"), "title": str(a.get("title", ""))[:140], "year": a.get("year", ""),
+        "objective": str(a.get("objective", ""))[:240], "methods": str(a.get("methods", ""))[:300],
+        "context": str(a.get("context", ""))[:160],
+        "findings": [str(x)[:230] for x in (a.get("findings") or [])[:5]],
+        "limitations": [str(x)[:170] for x in (a.get("limitations") or [])[:2]],
+        "design": a.get("design", {}),
+    }
+
+
+def theme_deep_prompt(theme, articles, rq):
+    """Sintesis mendalam SATU tema dari temuan lengkap artikel pendukungnya (bukan dari ringkasan batch)."""
+    return f"""Anda menulis bagian sintesis satu tema dalam systematic literature review, langsung dari data artikel (bukan ringkasan).
+ATURAN: Gunakan HANYA data artikel di bawah. Jangan mengarang angka atau hubungan kausal. Dukung setiap klaim dengan ID artikel persis dari input (maks 8 ID per klaim). Bandingkan lintas artikel: apa yang konsisten, apa yang berbeda dan mengapa (metode, data, konteks), seberapa kuat buktinya. Jangan sekadar mengulang satu per satu. Tulis Bahasa Indonesia akademik. Jawab JSON valid saja.
+
+Research question: {rq or '(belum ditentukan)'}
+TEMA: {theme.get('name')}
+Definisi: {theme.get('description', '')}
+
+ARTIKEL PADA TEMA INI ({len(articles)}):
+{json.dumps([_theme_article_slim(a) for a in articles], ensure_ascii=False)}
+
+JSON (urutan key jangan diubah):
+{{
+ "deep_synthesis":"3-4 paragraf (sekitar 250-400 kata) dipisah \\n\\n: pola utama, variasi metode/konteks, titik konsensus dan perbedaan",
+ "key_findings":[{{"finding":"temuan konkret, maks 2 kalimat","article_ids":["ID"]}}],
+ "methodological_patterns":"2-3 kalimat tentang metode, data, dan skala evaluasi yang dominan pada tema ini",
+ "evidence_strength":"2 kalimat: seberapa kuat dan seragam bukti; sebutkan batas (simulasi, data sintetis, sampel kecil) bila ada",
+ "open_questions":["pertanyaan terbuka yang muncul dari tema ini, maks 3"]
+}}
+(key_findings maks 6 butir.)
+"""
+
+
 def compact_design(a):
     """Ringkasan research_design untuk prompt sintesis batch (hemat token)."""
     d = a.get("research_design")
@@ -2596,15 +2687,22 @@ def synthesize():
 
     usage = new_usage()
     compact = [compact_article(a) for a in selected]
+    # ID artikel asli (16 karakter heksa) memakan banyak token output; model hanya melihat alias pendek A1, A2, ...
+    # dan semuanya dikembalikan ke ID asli sebelum hasil disimpan.
+    real_of, compact_p = {}, []
+    for n, a in enumerate(compact, start=1):
+        alias = f"A{n}"
+        real_of[alias] = a.get("id")
+        compact_p.append(dict(a, id=alias))
     # Ukuran batch mengikuti provider (model lokal 8B: kecil; API: besar) dan bisa diatur lewat .env.
-    batches = [compact[i:i + SYNTH_BATCH_SIZE] for i in range(0, len(compact), SYNTH_BATCH_SIZE)]
+    batches = [compact_p[i:i + SYNTH_BATCH_SIZE] for i in range(0, len(compact_p), SYNTH_BATCH_SIZE)]
     reduce_calls = count_reduce_calls(len(batches), REDUCE_GROUP_SIZE)
-    progress = new_progress(body.get("job_id", ""), "synthesis", total_steps=len(batches) + reduce_calls + 3)
+    progress = new_progress(body.get("job_id", ""), "synthesis", total_steps=len(batches) + reduce_calls + 4)
     progress.usage = usage
-    progress.set(stage="Menyiapkan sintesis", current=0, total=len(batches) + reduce_calls + 3)
+    progress.set(stage="Menyiapkan sintesis", current=0, total=len(batches) + reduce_calls + 4)
     progress.log(
         f"Sintesis dimulai: {len(selected)} artikel · {len(batches)} batch (maks {SYNTH_BATCH_SIZE} artikel/batch)"
-        f" · {reduce_calls} penggabungan · sintesis akhir · taksonomi · model {MODEL}"
+        f" · {reduce_calls} penggabungan · sintesis akhir · cek cakupan · sintesis per tema · taksonomi · model {MODEL}"
     )
     step = 0
     try:
@@ -2675,11 +2773,11 @@ def synthesize():
                 "year": a.get("year", ""),
                 "topic_tags": (a.get("topic_tags", []) or [])[:3],
             }
-            for a in compact
+            for a in compact_p
         ]
         # Ringkasan saran riset lanjutan + keterbatasan per artikel: bahan utama research gap.
         gap_digest = []
-        for a in compact:
+        for a in compact_p:
             fr = [str(x)[:180] for x in (a.get("future_research") or [])[:2]]
             lim = [str(x)[:160] for x in (a.get("limitations") or [])[:2]]
             if fr or lim:
@@ -2727,6 +2825,77 @@ def synthesize():
             result["review_notes"] = list(result["review_notes"]) + [
                 "Research gap tidak berhasil disusun otomatis; jalankan ulang sintesis atau susun manual dari kolom future_research di Matriks Ekstraksi."
             ]
+
+        # Cek cakupan: artikel INCLUDE yang belum dikutip di mana pun ditempatkan ke tema (atau tema baru).
+        step += 1
+        progress.set(current=step)
+        valid_aliases = {a["id"] for a in compact_p}
+        uncovered = [a for a in compact_p if a["id"] not in (_cited_aliases(result) & valid_aliases)]
+        if uncovered:
+            progress.log(f"Cek cakupan: {len(uncovered)} dari {len(compact_p)} artikel belum terkutip di sintesis; menempatkannya ke tema.")
+            try:
+                cov = llm_json(
+                    coverage_prompt(uncovered, result.get("main_themes", []), research_question),
+                    max_output_tokens=3200, usage=usage, progress=progress, label="Cek cakupan artikel", salvage=True,
+                )
+                cov.pop("_salvaged", None)
+                themes_list = result.setdefault("main_themes", [])
+                by_name = {str(t.get("name", "")).strip().lower(): t for t in themes_list if isinstance(t, dict)}
+                allowed = {a["id"] for a in uncovered}
+                for asg in cov.get("assignments") or []:
+                    if not isinstance(asg, dict):
+                        continue
+                    aid = str(asg.get("article_id", "")).strip().upper()
+                    theme = by_name.get(str(asg.get("theme", "")).strip().lower())
+                    if aid in allowed and theme is not None:
+                        ids = theme.setdefault("article_ids", [])
+                        if aid not in [str(i).strip().upper() for i in ids]:
+                            ids.append(aid)
+                        theme.setdefault("coverage_notes", []).append({"article_id": aid, "note": str(asg.get("note", ""))[:400]})
+                for nt in cov.get("new_themes") or []:
+                    if not isinstance(nt, dict) or not str(nt.get("name", "")).strip():
+                        continue
+                    ids = [str(i).strip().upper() for i in (nt.get("article_ids") or []) if str(i).strip().upper() in allowed]
+                    if ids:
+                        themes_list.append({"name": str(nt["name"])[:200], "description": str(nt.get("description", ""))[:600],
+                                            "synthesis": str(nt.get("synthesis", ""))[:900], "article_ids": ids,
+                                            "confidence": nt.get("confidence") if nt.get("confidence") in ("tinggi", "sedang", "rendah") else "rendah"})
+            except Exception as exc:
+                progress.log(f"Cek cakupan: ⚠ {str(exc)[:200]} (sintesis tetap dilanjutkan).")
+            left = len(compact_p) - len(_cited_aliases(result) & valid_aliases)
+            if left > 0:
+                result["review_notes"] = list(result.get("review_notes") or []) + [
+                    f"{left} artikel INCLUDE belum terkutip di tema/kesepakatan/kontradiksi/gap; periksa di Matriks Ekstraksi."
+                ]
+        progress.complete_step()
+
+        # Sintesis mendalam per tema dari temuan lengkap artikel pendukungnya.
+        theme_items = [t for t in result.get("main_themes", []) if isinstance(t, dict)]
+        with progress.lock:
+            progress.total_steps += len(theme_items)
+        article_by_alias = {a["id"]: a for a in compact_p}
+        for t_idx, theme in enumerate(theme_items, start=1):
+            step += 1
+            progress.set(current=step)
+            group = [article_by_alias[i] for i in dict.fromkeys(str(x).strip().upper() for x in theme.get("article_ids") or []) if i in article_by_alias]
+            if group:
+                try:
+                    deep = llm_json(
+                        theme_deep_prompt(theme, group, research_question),
+                        max_output_tokens=3000, usage=usage, progress=progress,
+                        label=f"Tema {t_idx}/{len(theme_items)} ({len(group)} artikel)", salvage=True,
+                    )
+                    deep.pop("_salvaged", None)
+                    for key in ("deep_synthesis", "key_findings", "methodological_patterns", "evidence_strength", "open_questions"):
+                        if deep.get(key):
+                            theme[key] = deep[key]
+                except Exception as exc:
+                    progress.log(f"Tema {t_idx}: ⚠ {str(exc)[:200]} (tema dipertahankan tanpa sintesis mendalam).")
+            progress.complete_step()
+
+        # Kembalikan alias ke ID asli lalu buang rujukan yang tidak valid.
+        result = _unalias(result, real_of)
+        summaries = _unalias(summaries, real_of)
         valid_article_ids = {a.get("id") for a in compact}
         result = filter_references(result, valid_article_ids)
 
@@ -2742,7 +2911,7 @@ def synthesize():
         result["included_article_count"] = len(selected)
         result["generated_at"] = datetime.now(timezone.utc).isoformat()
         result["model"] = MODEL
-        result["evidence_catalog"] = catalog
+        result["evidence_catalog"] = [dict(c, id=real_of.get(c.get("id"), c.get("id"))) for c in catalog]
         progress.complete_step()  # taksonomi (berhasil, fallback, atau kosong) selesai
         progress.log(f"Sintesis selesai: {len(selected)} artikel disintesis.")
         progress.finish(ok=True)
