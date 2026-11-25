@@ -113,7 +113,7 @@ MAX_FILE_MB = _env_int("MAX_FILE_MB", 30 if IS_API else 12)
 MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 MAX_TEXT_CHARS_HARD = 200000  # pengaman: skripsi/buku tidak boleh membengkakkan tagihan
 MAX_TEXT_CHARS = min(_env_int("MAX_TEXT_CHARS", 130000 if IS_API else 18000, minimum=1000), MAX_TEXT_CHARS_HARD)
-SYNTH_BATCH_SIZE = _env_int("SYNTH_BATCH_SIZE", 12 if IS_API else 4, minimum=2)      # artikel per batch sintesis
+SYNTH_BATCH_SIZE = _env_int("SYNTH_BATCH_SIZE", 10 if IS_API else 4, minimum=2)      # artikel per batch sintesis
 REDUCE_GROUP_SIZE = _env_int("REDUCE_GROUP_SIZE", 8 if IS_API else 4, minimum=2)     # ringkasan per penggabungan
 LLM_OUTPUT_SCALE = float(os.getenv("LLM_OUTPUT_SCALE", "1.75" if IS_API else "1"))   # pengali batas token output (hanya plafon)
 KEEP_SERVER_PDFS = _env_bool("KEEP_SERVER_PDFS", False)  # salin PDF asli ke data/pdfs (default mati)
@@ -1339,6 +1339,7 @@ def compact_article(a):
 def batch_synthesis_prompt(articles, rq, inclusion, exclusion):
     return f"""Bertindak sebagai peneliti yang menyusun sintesis systematic literature review secara kritis.
 Gunakan HANYA data artikel pada JSON di bawah. Jangan mengarang temuan. Jangan menyamakan korelasi dengan kausalitas. Bila bukti tidak cukup, nyatakan demikian. Gunakan ID artikel yang diberikan persis untuk mendukung setiap klaim.
+BATAS PANJANG (wajib agar JSON tidak terpotong): maks 4 themes, 4 agreements, 3 contradictions, 4 gaps, 4 taxonomy_seeds, 4 system_relationships; setiap string maks 2 kalimat; setiap article_ids maks 8 ID. Isi gaps dari future_research dan limitations artikel, bukan dari dugaan.
 Jawab dengan JSON valid saja.
 
 Research question: {rq or '(perlu dirumuskan dari korpus)'}
@@ -1348,13 +1349,13 @@ Exclusion criteria: {exclusion or '(belum diisi)'}
 ARTIKEL YANG SUDAH DISETUJUI MANUAL UNTUK MASUK REVIEW:
 {json.dumps(articles, ensure_ascii=False)}
 
-JSON:
+JSON (urutan key penting; jangan diubah):
 {{
  "batch_overview":"sintesis singkat kumpulan artikel ini",
+ "gaps":[{{"gap":"celah yang tampak","evidence":"mengapa korpus menunjukkan celah tersebut","article_ids":["ID"]}}],
  "themes":[{{"name":"tema","synthesis":"apa yang didukung artikel","article_ids":["ID dari input saja"]}}],
  "agreements":[{{"claim":"temuan yang konsisten","article_ids":["ID"],"notes":"konteks atau batas bukti"}}],
  "contradictions":[{{"issue":"hal yang berbeda/bertentangan","article_ids":["ID"],"possible_explanation":"kemungkinan berbasis perbedaan metode/konteks, tandai dugaan bila belum pasti"}}],
- "gaps":[{{"gap":"celah yang tampak","evidence":"mengapa korpus menunjukkan celah tersebut","article_ids":["ID"]}}],
  "taxonomy_seeds":[{{"name":"konsep/kategori","description":"dasar pengelompokan","article_ids":["ID"],"parents":["kategori induk bila relevan"]}}],
  "system_relationships":[{{"source":"konsep","target":"konsep","relation":"hubungan yang dilaporkan","article_ids":["ID"],"evidence":"dasar hubungan"}}]
 }}
@@ -1383,29 +1384,58 @@ Kembalikan objek JSON dengan struktur:
 """
 
 
-def final_synthesis_prompt(batch_summaries, article_catalog, rq, inclusion, exclusion):
+def _final_header(rq, inclusion, exclusion):
     return f"""Anda menyusun hasil akhir systematic literature review berdasarkan korpus artikel yang sudah disaring dan diputuskan INCLUDE oleh pengguna. Berikan sintesis lintas artikel secara kritis dan transparan.
-ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan. Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Taxonomy topik dibuat pada langkah terpisah; jangan membuat taxonomy di sini. System map hanya memuat hubungan yang punya dasar pada artikel, bukan hubungan spekulatif tanpa label. Jawaban harus JSON valid tanpa markdown.
+ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan (maks 10 ID per item; pilih yang paling representatif). Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Taxonomy topik dibuat pada langkah terpisah; jangan membuat taxonomy di sini. Jawaban harus JSON valid tanpa markdown.
 
 Research question: {rq or 'Rumuskan usulan RQ dari korpus, tandai sebagai usulan yang perlu disetujui pengguna.'}
 Kriteria inklusi: {inclusion or '(tidak ditentukan)'}
 Kriteria eksklusi: {exclusion or '(tidak ditentukan)'}
+"""
 
+
+def final_synthesis_prompt(batch_summaries, article_catalog, rq, inclusion, exclusion):
+    """Panggilan 1/2: RQ, subpertanyaan, sintesis eksekutif, tema utama."""
+    return f"""{_final_header(rq, inclusion, exclusion)}
 KATALOG ARTIKEL YANG TERMASUK:
 {json.dumps(article_catalog, ensure_ascii=False)}
 
 SINTESIS PER BATCH:
 {json.dumps(batch_summaries, ensure_ascii=False)}
 
-Kembalikan JSON:
+Kembalikan JSON (executive_synthesis 3-5 paragraf; main_themes 5-8 tema):
 {{
  "research_question_refinement":"RQ yang diberikan atau usulan RQ dengan catatan bila diusulkan AI",
  "subquestions":["subpertanyaan yang dapat dijawab dengan bukti korpus"],
- "executive_synthesis":"sintesis lintas artikel dalam beberapa paragraf ringkas",
- "main_themes":[{{"name":"tema","description":"definisi operasional tema","synthesis":"pola temuan, kondisi, dan variasi","article_ids":["ID katalog saja"],"confidence":"tinggi|sedang|rendah"}}],
+ "executive_synthesis":"sintesis lintas artikel dalam beberapa paragraf",
+ "main_themes":[{{"name":"tema","description":"definisi operasional tema","synthesis":"pola temuan, kondisi, dan variasi","article_ids":["ID katalog saja"],"confidence":"tinggi|sedang|rendah"}}]
+}}
+"""
+
+
+def gaps_synthesis_prompt(batch_summaries, article_catalog, gap_digest, themes, rq, inclusion, exclusion):
+    """Panggilan 2/2: kesepakatan, kontradiksi, RESEARCH GAPS, keterbatasan. Dipisah dari panggilan 1 supaya
+    gap tidak lagi menjadi bagian JSON yang paling akhir dan paling sering terpotong."""
+    theme_names = [t.get("name") for t in themes if isinstance(t, dict)]
+    return f"""{_final_header(rq, inclusion, exclusion)}
+KATALOG ARTIKEL YANG TERMASUK:
+{json.dumps(article_catalog, ensure_ascii=False)}
+
+TEMA UTAMA (sudah disusun, jangan diulang):
+{json.dumps(theme_names, ensure_ascii=False)}
+
+SINTESIS PER BATCH:
+{json.dumps(batch_summaries, ensure_ascii=False)}
+
+SARAN RISET LANJUTAN DAN KETERBATASAN YANG DINYATAKAN TIAP ARTIKEL (dasar utama research gap):
+{json.dumps(gap_digest, ensure_ascii=False)}
+
+Tugas: tulis research_gaps (6-10 gap) lebih dulu. Satu gap = celah yang muncul di BANYAK artikel (future_research/limitations yang berulang) atau yang terlihat dari ketiadaan bukti lintas korpus relatif terhadap RQ. Tandai dugaan sebagai dugaan. Lalu agreements, contradictions, limitations_of_corpus, review_notes. Tiap string maks 3 kalimat.
+Kembalikan JSON dengan urutan key ini:
+{{
+ "research_gaps":[{{"gap":"celah riset","evidence":"dasar dari artikel yang direview","article_ids":["ID"],"suggested_next_step":"arah riset lanjutan"}}],
  "agreements":[{{"claim":"hal yang relatif konsisten","article_ids":["ID"],"interpretation":"interpretasi dan batasnya"}}],
  "contradictions":[{{"issue":"temuan yang berbeda","article_ids":["ID"],"possible_explanation":"penjelasan potensial ditandai sebagai hipotesis bila belum diuji"}}],
- "research_gaps":[{{"gap":"celah riset","evidence":"dasar dari artikel yang direview","article_ids":["ID"],"suggested_next_step":"arah riset lanjutan"}}],
  "limitations_of_corpus":["keterbatasan korpus atau data ekstraksi; jangan mengklaim penilaian kualitas formal jika tidak dilakukan"],
  "review_notes":["catatan untuk verifikasi manual sebelum dipakai dalam tesis/publikasi"]
 }}
@@ -2569,9 +2599,9 @@ def synthesize():
     # Ukuran batch mengikuti provider (model lokal 8B: kecil; API: besar) dan bisa diatur lewat .env.
     batches = [compact[i:i + SYNTH_BATCH_SIZE] for i in range(0, len(compact), SYNTH_BATCH_SIZE)]
     reduce_calls = count_reduce_calls(len(batches), REDUCE_GROUP_SIZE)
-    progress = new_progress(body.get("job_id", ""), "synthesis", total_steps=len(batches) + reduce_calls + 2)
+    progress = new_progress(body.get("job_id", ""), "synthesis", total_steps=len(batches) + reduce_calls + 3)
     progress.usage = usage
-    progress.set(stage="Menyiapkan sintesis", current=0, total=len(batches) + reduce_calls + 2)
+    progress.set(stage="Menyiapkan sintesis", current=0, total=len(batches) + reduce_calls + 3)
     progress.log(
         f"Sintesis dimulai: {len(selected)} artikel · {len(batches)} batch (maks {SYNTH_BATCH_SIZE} artikel/batch)"
         f" · {reduce_calls} penggabungan · sintesis akhir · taksonomi · model {MODEL}"
@@ -2585,11 +2615,14 @@ def synthesize():
             progress.set(current=step)
             summary = llm_json(
                 batch_synthesis_prompt(group, research_question, inclusion, exclusion),
-                max_output_tokens=1000 if SYNTH_BATCH_SIZE <= 6 else 1500,
+                max_output_tokens=1800 if SYNTH_BATCH_SIZE <= 6 else 3200,
                 usage=usage,
                 progress=progress,
                 label=label,
+                salvage=True,
             )
+            if isinstance(summary, dict):
+                summary.pop("_salvaged", None)
             progress.complete_step()
             summaries.append({
                 "batch": idx,
@@ -2612,11 +2645,14 @@ def synthesize():
                 progress.set(current=step)
                 merged = llm_json(
                     reduce_summaries_prompt(group, research_question, inclusion, exclusion),
-                    max_output_tokens=900,
+                    max_output_tokens=2400,
                     usage=usage,
                     progress=progress,
                     label=label,
+                    salvage=True,
                 )
+                if isinstance(merged, dict):
+                    merged.pop("_salvaged", None)
                 progress.complete_step()
                 ids = []
                 for part in group:
@@ -2641,18 +2677,56 @@ def synthesize():
             }
             for a in compact
         ]
+        # Ringkasan saran riset lanjutan + keterbatasan per artikel: bahan utama research gap.
+        gap_digest = []
+        for a in compact:
+            fr = [str(x)[:180] for x in (a.get("future_research") or [])[:2]]
+            lim = [str(x)[:160] for x in (a.get("limitations") or [])[:2]]
+            if fr or lim:
+                gap_digest.append({"id": a.get("id"), "future_research": fr, "limitations": lim})
+
+        # Panggilan 1/2: RQ, subpertanyaan, sintesis eksekutif, tema utama.
         step += 1
         progress.set(current=step)
         result = llm_json(
             final_synthesis_prompt(summaries, catalog, research_question, inclusion, exclusion),
-            max_output_tokens=2600,  # dulu 1700: JSON terpotong sehingga limitations_of_corpus/review_notes hilang saat "diperbaiki"
+            max_output_tokens=3600,
             usage=usage,
             progress=progress,
-            label="Sintesis akhir",
+            label="Sintesis akhir 1/2 (tema)",
+            salvage=True,
         )
         progress.complete_step()
         if not isinstance(result, dict):
             raise RuntimeError("AI tidak mengembalikan sintesis dalam format yang benar.")
+        result.pop("_salvaged", None)
+
+        # Panggilan 2/2: research gaps, kesepakatan, kontradiksi, keterbatasan. Dicoba ulang sekali bila gap kosong.
+        gap_part = {}
+        step += 1
+        progress.set(current=step)
+        for attempt in range(2):
+            part = llm_json(
+                gaps_synthesis_prompt(summaries, catalog, gap_digest, result.get("main_themes", []), research_question, inclusion, exclusion),
+                max_output_tokens=3600,
+                usage=usage,
+                progress=progress,
+                label="Sintesis akhir 2/2 (gap)" + (" · ulang" if attempt else ""),
+                salvage=True,
+            )
+            if isinstance(part, dict):
+                part.pop("_salvaged", None)
+                gap_part = part
+                if part.get("research_gaps"):
+                    break
+            progress.log("Sintesis akhir 2/2: research_gaps kosong, mengulang sekali…")
+        progress.complete_step()
+        for key in ("research_gaps", "agreements", "contradictions", "limitations_of_corpus", "review_notes"):
+            result[key] = gap_part.get(key) or []
+        if not result["research_gaps"]:
+            result["review_notes"] = list(result["review_notes"]) + [
+                "Research gap tidak berhasil disusun otomatis; jalankan ulang sintesis atau susun manual dari kolom future_research di Matriks Ekstraksi."
+            ]
         valid_article_ids = {a.get("id") for a in compact}
         result = filter_references(result, valid_article_ids)
 
