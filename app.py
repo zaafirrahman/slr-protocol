@@ -18,6 +18,7 @@ import fitz  # PyMuPDF
 from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 
+import synthesis_pdf  # PDF Review Synthesis (PyMuPDF Story)
 import arah_riset  # langkah 0 khusus TMI: murni komputasi dari data tesis, tanpa AI
 
 try:
@@ -3000,6 +3001,25 @@ def build_project_html(state, design, codebook, generated_at=None):
     tail = "<script>window.__SLR_VIEWER__=" + json_for_script(payload) + ";</script>\n<script>" + js + "</script>\n"
     cut = html.rindex("</body>")
     return html[:cut] + tail + html[cut:]
+
+
+@app.post("/api/synthesis-pdf")
+@auth_guard
+def synthesis_pdf_download():
+    """Susun hasil Review Synthesis menjadi PDF A4 yang rapi (tanpa AI, tanpa biaya)."""
+    body = request.get_json(silent=True) or {}
+    synthesis = body.get("synthesis")
+    articles = body.get("articles") if isinstance(body.get("articles"), list) else []
+    meta = body.get("meta") if isinstance(body.get("meta"), dict) else {}
+    try:
+        data = synthesis_pdf.build_pdf(synthesis, articles[:500], meta)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Gagal menyusun PDF: {str(exc)[:300]}"}), 500
+    name = f"review-synthesis-{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    return Response(data, mimetype="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @app.post("/api/export-html")

@@ -500,6 +500,7 @@
   function renderSynthesis() {
     const s = state.synthesis;
     $('#synthesis-empty').classList.toggle('hidden', !!s);
+    const pdfBtn = $('#download-synthesis-pdf'); if (pdfBtn) pdfBtn.classList.toggle('hidden', !s || !!VIEWER);
     $('#synthesis-output').classList.toggle('hidden', !s);
     if (!s) return;
     const themes = list(s.main_themes).map(t => `<div class="synth-list-item"><div class="synth-card-head"><h4>${esc(t.name || 'Tema')}</h4><span class="confidence ${(t.confidence || '').toLowerCase()}">${esc(t.confidence || 'confidence tidak ditentukan')}</span></div><p>${esc(t.synthesis || t.description || '')}</p>${t.description && t.synthesis ? `<p style="margin-top:7px"><strong>Definisi:</strong> ${esc(t.description)}</p>` : ''}${t.deep_synthesis ? `<div class="theme-deep">${String(t.deep_synthesis).split(/\n+/).filter(Boolean).map(par => `<p style="margin-top:9px">${esc(par)}</p>`).join('')}</div>` : ''}${list(t.key_findings).length ? `<p style="margin-top:10px"><strong>Temuan kunci</strong></p><ul>${list(t.key_findings).map(k => `<li>${esc(k.finding || '')}<div class="source-chips">${citationChips(k.article_ids)}</div></li>`).join('')}</ul>` : ''}${t.methodological_patterns ? `<p style="margin-top:7px"><strong>Pola metode:</strong> ${esc(t.methodological_patterns)}</p>` : ''}${t.evidence_strength ? `<p style="margin-top:7px"><strong>Kekuatan bukti:</strong> ${esc(t.evidence_strength)}</p>` : ''}${list(t.open_questions).length ? `<p style="margin-top:7px"><strong>Pertanyaan terbuka:</strong></p><ul>${list(t.open_questions).map(q => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}<div class="source-chips">${citationChips(t.article_ids)}</div></div>`).join('');
@@ -2233,6 +2234,36 @@ ${refnote}
     } finally { await stopPolling(); setBusy(false); $('#run-synthesis').textContent = '* Jalankan sintesis'; }
   }
 
+  // Unduh hasil Review Synthesis sebagai PDF (disusun server, tanpa AI dan tanpa biaya).
+  let downloadingSynthPdf = false;
+  async function downloadSynthesisPdf() {
+    if (VIEWER || downloadingSynthPdf || !state.synthesis) return;
+    downloadingSynthPdf = true;
+    const btn = $('#download-synthesis-pdf'); const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Menyusun PDF…'; }
+    try {
+      const { taxonomy, ...syn } = state.synthesis;
+      const ids = new Set(list(syn.evidence_catalog).map(e => e.id));
+      const slim = state.articles.filter(a => ids.has(a.id)).map(a => ({id: a.id, title: a.title, year: a.year, authors: a.authors, doi: a.doi || a.doi_detected || ''}));
+      const response = await fetch('/api/synthesis-pdf', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({synthesis: syn, articles: slim, meta: getMetaFromForm()})});
+      if (!response.ok) {
+        let message = `Permintaan gagal (HTTP ${response.status}).`;
+        try { message = (await response.json()).error || message; } catch (_) { /* respons bukan JSON */ }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `review-synthesis-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      toast('PDF Review Synthesis diunduh.', 'success');
+    } catch (error) {
+      toast('Gagal membuat PDF: ' + (error.message || error), 'error');
+    } finally {
+      downloadingSynthPdf = false; if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+  }
+
   function renderSelectedFiles() {
     const files=Array.from($('#pdf-files').files||[]), box=$('#selected-files');
     if(!files.length){box.classList.add('hidden');box.innerHTML='';return;}
@@ -2293,7 +2324,7 @@ ${refnote}
       if (e.target && e.target.closest && e.target.closest(selector)) { e.stopPropagation(); if (t === 'submit') e.preventDefault(); }
     }, true));
     block(['change', 'input'], '#articles-body, #article-detail, #norm-panel, #design-scope, #design-topic, #project-form');
-    block(['click'], '#run-synthesis, #clear-articles, #norm-panel, #design-steps, #analyze-button, #usage-reset, #import-json, #taxonomy-retry');
+    block(['click'], '#run-synthesis, #download-synthesis-pdf, #clear-articles, #norm-panel, #design-steps, #analyze-button, #usage-reset, #import-json, #taxonomy-retry');
     block(['submit'], '#upload-form, #project-form');
   }
   async function importProject(file) {
@@ -2773,6 +2804,7 @@ ${refnote}
     $('#project-form').addEventListener('submit',e=>{e.preventDefault();saveMetaFromForm(true);});
     $('#upload-form').addEventListener('submit',handleUpload);
     $('#run-synthesis').addEventListener('click',handleSynthesis);
+    const synthPdfBtn = $('#download-synthesis-pdf'); if (synthPdfBtn) synthPdfBtn.addEventListener('click', downloadSynthesisPdf);
     $('#design-topic').addEventListener('input',e=>{state.designUi={...(state.designUi||{}),topic:e.target.value};saveState();clearTimeout(window.__designTimer);window.__designTimer=setTimeout(renderDesign,350);});
     $('#design-scope').addEventListener('change',e=>{state.designUi={...(state.designUi||{}),scope:e.target.value};saveState();renderDesign();});
     $('#design-report').addEventListener('click', downloadDesignReport);
