@@ -14,7 +14,7 @@ def check(c, m):
     else: fail += 1; print("GAGAL:", m)
 
 N = 37
-arts = [{"id": f"{i:016x}", "title": f"Judul {i}", "year": "2024", "abstract": "abs", "findings": [f"temuan {i}"],
+arts = [{"id": f"{i:016x}", "title": f"Judul {i}", "year": "2024", "authors": [f"Nama Depan Penulis{i}", "Kedua"], "abstract": "abs", "findings": [f"temuan {i}"],
          "future_research": [f"riset lanjutan {i}"], "limitations": [f"batas {i}"],
          "screening_decision": "include", "eligibility_decision": "include"} for i in range(1, N + 1)]
 real_ids = {a["id"] for a in arts}
@@ -30,7 +30,7 @@ def fake(prompt, max_output_tokens=0, usage=None, progress=None, label="", salva
         return {"batch_overview": "x", "gaps": [{"gap": "g", "evidence": "e", "article_ids": ids[:2]}],
                 "themes": [{"name": "t", "synthesis": "s", "article_ids": ids[:2]}]}
     if "1/2" in label:   # tema hanya mengutip 10 artikel pertama
-        return {"research_question_refinement": "rq", "subquestions": ["q"], "executive_synthesis": "es",
+        return {"research_question_refinement": "rq", "subquestions": ["q"], "executive_synthesis": "Studi (A1, A2) menunjukkan X; A3 berbeda.",
                 "main_themes": [{"name": "Tema A", "description": "d", "synthesis": "s", "article_ids": ["A1", "A2", "A3", "A4", "A5"]},
                                 {"name": "Tema B", "description": "d", "synthesis": "s", "article_ids": ["A6", "A7", "A8", "A9", "A10", "A999"]}]}
     if "2/2" in label:
@@ -66,6 +66,7 @@ check(any(t["name"] == "Tema Baru" for t in s.get("main_themes", [])), "tema bar
 check(all(t.get("deep_synthesis") for t in s.get("main_themes", [])), "tiap tema punya sintesis mendalam")
 check(all(set(k["article_ids"]) <= real_ids for t in s.get("main_themes", []) for k in t.get("key_findings", [])), "key_findings memakai ID asli")
 check({e["id"] for e in s.get("evidence_catalog", [])} == real_ids, "evidence_catalog memakai ID asli")
+check("Penulis1 et al. 2024" in s.get("executive_synthesis", "") and not re.search(r"\bA\d+\b", s.get("executive_synthesis", "")), "alias di teks naratif diganti label penulis-tahun")
 check(not any("A999" in json.dumps(s) for _ in [0]), "ID rekaan dibuang")
 
 # bila model sudah mengutip semuanya, cek cakupan dilewati

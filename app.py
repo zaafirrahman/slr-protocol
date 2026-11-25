@@ -1386,7 +1386,7 @@ Kembalikan objek JSON dengan struktur:
 
 def _final_header(rq, inclusion, exclusion):
     return f"""Anda menyusun hasil akhir systematic literature review berdasarkan korpus artikel yang sudah disaring dan diputuskan INCLUDE oleh pengguna. Berikan sintesis lintas artikel secara kritis dan transparan.
-ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan (maks 10 ID per item; pilih yang paling representatif). Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Taxonomy topik dibuat pada langkah terpisah; jangan membuat taxonomy di sini. Jawaban harus JSON valid tanpa markdown.
+ATURAN: Jangan mengarang fakta atau hubungan kausal. Semua article_ids HARUS dipilih dari katalog yang diberikan (maks 10 ID per item; pilih yang paling representatif). Rujukan di dalam teks naratif ditulis dengan ID persis dalam kurung, mis. (A12, A40); sistem mengubahnya otomatis menjadi nama penulis dan tahun, jadi jangan tulis nama penulis sendiri. Gunakan hanya bukti dari ringkasan artikel/batch. Jika informasi tidak tersedia, tulis tidak cukup bukti. Taxonomy topik dibuat pada langkah terpisah; jangan membuat taxonomy di sini. Jawaban harus JSON valid tanpa markdown.
 
 Research question: {rq or 'Rumuskan usulan RQ dari korpus, tandai sebagai usulan yang perlu disetujui pengguna.'}
 Kriteria inklusi: {inclusion or '(tidak ditentukan)'}
@@ -1441,12 +1441,27 @@ Kembalikan JSON dengan urutan key ini:
 }}
 """
 
-def _unalias(obj, real_of):
-    """Kembalikan alias ID pendek (A1, A2, ...) ke ID artikel asli di seluruh struktur."""
+_ALIAS_RE = re.compile(r"\bA(\d{1,3})\b")
+
+
+def _alias_label(a):
+    """Label rujukan yang terbaca manusia untuk alias di teks naratif: 'Nama-belakang Tahun'."""
+    authors = a.get("authors") if isinstance(a.get("authors"), list) else []
+    first = str(authors[0]).strip() if authors else ""
+    surname = first.split()[-1].strip(",.") if first else ""
+    year = str(a.get("year", "")).strip()
+    if surname:
+        return f"{surname}{' et al.' if len(authors) > 1 else ''} {year}".strip()
+    return f"{str(a.get('title', ''))[:40].strip()} {year}".strip() or "artikel"
+
+
+def _unalias(obj, real_of, label_of=None):
+    """Kembalikan alias ID pendek (A1, A2, ...) ke ID artikel asli di seluruh struktur. Alias yang ditulis model
+    di dalam teks naratif, mis. '(A12, A40)', diganti label penulis-tahun agar terbaca manusia."""
     def m(value):
         return real_of.get(str(value).strip().upper())
     if isinstance(obj, list):
-        return [_unalias(x, real_of) for x in obj]
+        return [_unalias(x, real_of, label_of) for x in obj]
     if isinstance(obj, dict):
         out = {}
         for key, value in obj.items():
@@ -1455,8 +1470,10 @@ def _unalias(obj, real_of):
             elif key == "article_id" and isinstance(value, str):
                 out[key] = m(value) or ""
             else:
-                out[key] = _unalias(value, real_of)
+                out[key] = _unalias(value, real_of, label_of)
         return out
+    if isinstance(obj, str) and label_of:
+        return _ALIAS_RE.sub(lambda mo: label_of.get(f"A{mo.group(1)}", mo.group(0)), obj)
     return obj
 
 
@@ -1511,7 +1528,7 @@ def _theme_article_slim(a):
 def theme_deep_prompt(theme, articles, rq):
     """Sintesis mendalam SATU tema dari temuan lengkap artikel pendukungnya (bukan dari ringkasan batch)."""
     return f"""Anda menulis bagian sintesis satu tema dalam systematic literature review, langsung dari data artikel (bukan ringkasan).
-ATURAN: Gunakan HANYA data artikel di bawah. Jangan mengarang angka atau hubungan kausal. Dukung setiap klaim dengan ID artikel persis dari input (maks 8 ID per klaim). Bandingkan lintas artikel: apa yang konsisten, apa yang berbeda dan mengapa (metode, data, konteks), seberapa kuat buktinya. Jangan sekadar mengulang satu per satu. Tulis Bahasa Indonesia akademik. Jawab JSON valid saja.
+ATURAN: Gunakan HANYA data artikel di bawah. Jangan mengarang angka atau hubungan kausal. Dukung setiap klaim dengan ID artikel persis dari input (maks 8 ID per klaim). Di dalam teks naratif tulis rujukan sebagai ID dalam kurung, mis. (A12, A40); sistem mengubahnya otomatis menjadi nama penulis dan tahun. Bandingkan lintas artikel: apa yang konsisten, apa yang berbeda dan mengapa (metode, data, konteks), seberapa kuat buktinya. Jangan sekadar mengulang satu per satu. Tulis Bahasa Indonesia akademik. Jawab JSON valid saja.
 
 Research question: {rq or '(belum ditentukan)'}
 TEMA: {theme.get('name')}
@@ -2689,10 +2706,11 @@ def synthesize():
     compact = [compact_article(a) for a in selected]
     # ID artikel asli (16 karakter heksa) memakan banyak token output; model hanya melihat alias pendek A1, A2, ...
     # dan semuanya dikembalikan ke ID asli sebelum hasil disimpan.
-    real_of, compact_p = {}, []
+    real_of, label_of, compact_p = {}, {}, []
     for n, a in enumerate(compact, start=1):
         alias = f"A{n}"
         real_of[alias] = a.get("id")
+        label_of[alias] = _alias_label(a)
         compact_p.append(dict(a, id=alias))
     # Ukuran batch mengikuti provider (model lokal 8B: kecil; API: besar) dan bisa diatur lewat .env.
     batches = [compact_p[i:i + SYNTH_BATCH_SIZE] for i in range(0, len(compact_p), SYNTH_BATCH_SIZE)]
@@ -2894,8 +2912,8 @@ def synthesize():
             progress.complete_step()
 
         # Kembalikan alias ke ID asli lalu buang rujukan yang tidak valid.
-        result = _unalias(result, real_of)
-        summaries = _unalias(summaries, real_of)
+        result = _unalias(result, real_of, label_of)
+        summaries = _unalias(summaries, real_of, label_of)
         valid_article_ids = {a.get("id") for a in compact}
         result = filter_references(result, valid_article_ids)
 
