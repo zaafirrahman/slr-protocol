@@ -24,7 +24,12 @@ dihitung langsung dari data ekstraksi tiap artikel, tanpa AI tambahan.
   awal selalu `pending` sampai kamu menetapkannya.
 - Dua tahap verifikasi manual: screening judul/abstrak dan full-text eligibility. Sintesis hanya memakai artikel
   yang **INCLUDE di kedua tahap**.
-- PRISMA flow dan review synthesis (tema, kesepakatan, kontradiksi, research gap).
+- PRISMA flow dan **review synthesis** yang dibangun bertahap supaya tidak ada yang terpotong: ringkasan per batch (8 artikel),
+  sintesis akhir dua panggilan (tema; lalu research gap, kesepakatan, kontradiksi, limitasi), **cek cakupan** otomatis (artikel
+  INCLUDE yang belum terkutip ditempatkan ke tema), dan **sintesis mendalam per tema** (3-4 paragraf, temuan kunci bersitasi, pola
+  metode, kekuatan bukti, pertanyaan terbuka) yang dibaca langsung dari temuan artikel pendukungnya.
+- **Unduh PDF Review Synthesis:** tombol di halaman Review Synthesis menghasilkan PDF A4 yang rapi (bookmark, nomor halaman, daftar
+  artikel rujukan). Disusun server tanpa AI dan tanpa biaya token ([detail](#unduh-pdf-review-synthesis)).
 - **Peta topik** dalam lima bentuk (hierarchical, poly-hierarchical, faceted, flat, matrix). Bila AI tidak mengisi poly-hierarchical,
   aplikasi menghitung konsep irisan dari artikel yang sama di dua cabang. Kotak **Perlu dicek** menandai ketidakkonsistenan (kategori
   yang tampaknya tentang cara riset, dimensi yang tidak mencakup semua artikel, sel matrix yang hanya mengutip sebagian artikel).
@@ -138,7 +143,7 @@ dan pengaturan provider di atas diabaikan.
 | Teks yang dibaca per PDF | 18.000 karakter | 130.000 karakter (batas pengaman 200.000) |
 | PDF per upload | 8 | 20 |
 | Ukuran per PDF | 12 MB | 30 MB |
-| Artikel per batch sintesis | 4 | 12 |
+| Artikel per batch sintesis | 4 | 8 |
 
 Model lokal 8B punya konteks sempit sehingga batasnya ketat. Dengan API, bagian akhir artikel (hasil,
 limitasi, saran riset) ikut terbaca. Semua batas dapat diubah lewat `.env`.
@@ -153,6 +158,9 @@ aplikasi tetap menghitung pemakaian dari komputermu. Penjelasan di bawah berlaku
 - **Peak:** Senin–Jumat 01:00–04:00 dan 06:00–10:00 UTC (= 08:00–11:00 dan 13:00–17:00 WIB). Di luar itu dan di
   akhir pekan: off-peak. Hari libur nasional China (kabarnya off-peak) tidak dimodelkan.
 - Biaya output biasanya mendominasi, sedangkan cache hit jarang terjadi pada dokumen yang berbeda.
+- Satu sintesis penuh (69 artikel INCLUDE) pada uji nyata menghabiskan sekitar 20 panggilan API dan **kurang dari Rp1.000**
+  dengan `deepseek-flash`: 9 batch, 2 panggilan akhir, 1 cek cakupan, 8 tema, 1 taksonomi. Sintesis yang murah dan **terpotong**
+  bukan tanda hemat, jadi cek log proses: tidak boleh ada baris "output terpotong".
 - Rupiah di popup hanyalah estimasi dari `USD_TO_IDR`. Dashboard DeepSeek menagih dalam USD dan menampilkan
   biaya dipotong ke dua desimal, jadi untuk membandingkan gunakan jumlah token dan jumlah request.
 - Tarif bisa berubah. Cek https://api-docs.deepseek.com/quick_start/pricing dan sesuaikan `DEEPSEEK_PRICE_*`.
@@ -188,7 +196,8 @@ Detail arsitektur, keamanan, dan batasannya ada di [`CLAUDE.md`](CLAUDE.md) bagi
 2. Unggah PDF berbasis teks. PDF yang sudah ada di proyek dilewati otomatis.
 3. Di tab **Artikel**, periksa hasil ekstraksi dan tetapkan keputusan screening, lalu keputusan full-text.
 4. Buka **Review Synthesis** dan jalankan sintesis **sekali di akhir** (setiap sintesis memproses ulang semua
-   artikel INCLUDE dan menambah biaya).
+   artikel INCLUDE dan menambah biaya). Untuk 69 artikel, prosesnya beberapa menit; progres dan log per panggilan tampil live.
+   Setelah selesai, klik **Unduh PDF** bila ingin versi yang enak dibaca dan dibagikan.
 5. Periksa PRISMA, peta topik, co-occurrence, dan system map. Cara membaca tiap tab ada di
    [SLR lanjutan](#slr-lanjutan-cara-membaca-tiap-tab) di bawah.
 6. (Opsional) Buka **Taksonomi Desain Riset** dan rapikan nama serta keluarga teknik; langkahnya ada di
@@ -315,6 +324,19 @@ Tentang ekspor HTML:
 Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit),
 `qris.png` (QRIS pada popup token, kotaknya menyembunyikan diri bila gambar tidak ada), dan `slr.ico` (ikon untuk shortcut Windows). Ekspor HTML hanya membawa logo; avatar credit dan QRIS tidak ikut.
 
+### Unduh PDF Review Synthesis
+
+Setelah sintesis selesai, tombol **Unduh PDF ↓** muncul di sebelah tombol Jalankan sintesis. Server menyusun PDF dari hasil sintesis
+yang sedang tampil (`POST /api/synthesis-pdf`, PyMuPDF Story). **Tanpa AI, tanpa biaya token**, selesai dalam kurang dari satu detik.
+
+Isi PDF (A4): judul dan metadata (research question, jumlah artikel, dasar data, tanggal pencarian, model), sintesis eksekutif,
+tema utama (sintesis mendalam, temuan kunci, pola metode, kekuatan bukti, pertanyaan terbuka, sumber), konsistensi, kontradiksi,
+research gaps, limitasi korpus, catatan verifikasi, dan daftar artikel rujukan (penulis, tahun, judul, DOI). Ada bookmark di panel PDF,
+header, dan nomor halaman. Rujukan di teks ditulis `NamaBelakang et al. Tahun`; label kembar diberi akhiran `a`, `b`.
+
+Catatan: PDF hanya berisi teks (tanpa diagram peta topik/taksonomi); karakter yang tidak ada di font bawaan (≈, →, ≤) diganti padanan ASCII;
+tombol disembunyikan di ekspor HTML offline (tidak ada server). Isi PDF dibuat model bahasa, jadi **verifikasi ke artikel asli** sebelum dikutip.
+
 ## Pemecahan masalah
 
 | Gejala | Penyebab umum |
@@ -325,7 +347,12 @@ Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `l
 | HTTP 429 | Terkena rate limit, tunggu lalu coba lagi. Di mode terkelola bisa juga berarti batas token harian akunmu habis (pesannya menyebut kuota) |
 | Proyek tampak kosong | Alamat/port berbeda dari sebelumnya, atau data browser dibersihkan: impor file ekspor |
 | Teks "tidak terbaca" pada PDF | PDF hasil scan tanpa lapisan teks; belum ada OCR, jalankan OCR dulu |
-| Banyak "retry" di log | Output AI terpotong di batas token; naikkan `LLM_OUTPUT_SCALE` |
+| Banyak "retry" atau baris "output terpotong" di log sintesis | Output AI terpotong di batas token. Turunkan `SYNTH_BATCH_SIZE` (mis. 6) atau naikkan `LLM_OUTPUT_SCALE` |
+| Log masih menulis "maks 12 artikel/batch" | `.env` menimpa bawaan kode. Samakan `SYNTH_BATCH_SIZE=8` dan `REDUCE_GROUP_SIZE=12` dengan `.env.example`, lalu restart |
+| Research gap kosong atau ada catatan "Research gap tidak berhasil disusun" | Panggilan gap gagal dua kali. Jalankan ulang sintesis, atau susun manual dari kolom saran riset lanjutan di Matriks Ekstraksi |
+| Teks sintesis memuat "A12, A40" | Hasil dari versi lama sebelum alias ID diganti penulis-tahun. Jalankan ulang sintesis |
+| Tombol Unduh PDF tidak muncul | Belum ada hasil sintesis, atau halaman dibuka dari ekspor HTML offline. Restart aplikasi lalu Ctrl+F5 bila baru memperbarui kode |
+| "Gagal membuat PDF" | `synthesis_pdf.py` belum ada di folder utama (sejajar `app.py`), atau PyMuPDF belum terpasang (`pip install -r requirements.txt`) |
 | Selalu dialihkan ke `/signup` | `USER_API_KEY` di `.env` masih kosong. Selesaikan pendaftaran di halaman itu |
 | "Nama pengguna itu sudah dipakai" | Pilih nama lain. Bila itu akunmu yang lama (ganti laptop atau `.env` hilang), minta admin mengganti nama akun lama |
 | "Tidak bisa terhubung ke server" saat daftar | Koneksi internet bermasalah, atau proyek Supabase sedang tidak aktif (kabari admin) |
@@ -366,6 +393,7 @@ Gambar yang dipakai antarmuka ada di `static/`: `slr.png` (logo dan favicon), `l
 
 ```
 app.py                  backend Flask (API, prompt, provider AI, progres, biaya)
+synthesis_pdf.py        PDF Review Synthesis (PyMuPDF Story, tanpa AI): build_html, build_pdf
 user_auth.py            mode terkelola: gerbang /signup, tulis USER_API_KEY ke .env, arahkan AI ke proxy
 arah_riset.py           Arah Riset (langkah 0, khusus TMI ITB)
 arah_riset_data/        data facet tesis dan kosakata query
@@ -393,6 +421,8 @@ python tests/test_arah_riset.py
 python tests/test_research_design.py
 python tests/test_user_auth.py
 python tests/test_json_repair.py                       # penyelamat JSON terpotong dan peta topik
+python tests/test_synthesis_pipeline.py                # alur sintesis: alias ID, cek cakupan, sintesis per tema (LLM ditiru)
+python tests/test_synthesis_pdf.py                     # PDF Review Synthesis dan rute /api/synthesis-pdf
 python tests/test_export_html.py proyek.json hasil.html   # ekspor HTML (argumen opsional)
 node tests/viewer_smoke.js hasil.html                  # menjalankan ekspor HTML di DOM tiruan
 node tests/live_export_smoke.js hasil.html proyek.json # menu Ekspor proyek dan payload di aplikasi biasa

@@ -54,6 +54,7 @@ static/landing.css      Gaya landing saja. Tema terminal yang SAMA dengan worksp
 arah_riset.py          Langkah 0 (khusus TMI ITB): mesin pertanyaan dan generator topik/RQ/query/kriteria. Murni komputasi, tanpa AI.
 arah_riset_data/        thesis_facets.json (facet tesis TMI) + vocab_en.json (istilah query bahasa Inggris). BUKAN di data/ karena data/ di-gitignore.
 requirements.txt        Flask, PyMuPDF, python-dotenv. (Sengaja tanpa SDK Supabase: user_auth.py memakai urllib.)
+synthesis_pdf.py        PDF Review Synthesis (PyMuPDF Story): `build_html`, `build_pdf`. Dipakai `POST /api/synthesis-pdf`. Bagian 4.2c.
 user_auth.py            Mode terkelola: gerbang /signup, daftar ke Supabase (RPC), tulis USER_API_KEY ke .env, arahkan AI ke proxy. Bagian 9.1.
 templates/signup.html   Halaman pendaftaran (berdiri sendiri, CSS inline, tema sama dengan landing).
 supabase/schema.sql     Tabel users/token_logs, RLS, fungsi register_user dan check_user, view usage_per_user. Dijalankan manual di SQL Editor.
@@ -62,7 +63,7 @@ slr-protocol.bat        Peluncur Windows: git pull, .env minimal, venv, pip inst
 .gitattributes          `*.bat text eol=crlf` supaya .bat tetap CRLF setelah clone.
 .env.example            Konfigurasi bersama dan penjelasannya. Di mode terkelola SEMUA nilai terisi menjadi bawaan untuk pengguna.
 .gitignore              Mengabaikan .env, .env.tmp, .venv, venv, data/, dan berkas ekspor proyek.
-tests/                  python: test_routes, test_arah_riset, test_research_design, test_user_auth, test_json_repair, test_export_html. node: ui_smoke, ui_report_check (butuh jsdom, opsional), viewer_smoke, live_export_smoke (pakai dom_shim.js buatan sendiri, tanpa npm install).
+tests/                  python: test_routes, test_arah_riset, test_research_design, test_user_auth, test_json_repair, test_export_html, test_synthesis_pipeline, test_synthesis_pdf. node: ui_smoke, ui_report_check (butuh jsdom, opsional), viewer_smoke, live_export_smoke (pakai dom_shim.js buatan sendiri, tanpa npm install).
 ```
 
 Aset gambar di `static/`: `slr.png` (logo + favicon), `latte0nim.jpg` dan `feinstehaar.jpg` (avatar credit), `qris.png`
@@ -108,7 +109,7 @@ untuk menentukan apakah mode terkelola aktif).
 | `MAX_TEXT_CHARS` | 18000 ollama / 130000 deepseek | Teks isi artikel per PDF yang dikirim ke AI (di luar daftar pustaka). Dibatasi keras 200000. Naik/turunnya angka ini TIDAK memengaruhi citation graph: daftar pustaka diurai kode dari teks yang dibuang, sebelum pemotongan. |
 | `MAX_FILES_PER_BATCH` | 8 / 20 | PDF per upload. |
 | `MAX_FILE_MB` | 12 / 30 | Ukuran per PDF. |
-| `SYNTH_BATCH_SIZE` / `REDUCE_GROUP_SIZE` | 4 / 4 (ollama), 12 / 8 (deepseek) | Ukuran batch sintesis dan grup penggabungan. |
+| `SYNTH_BATCH_SIZE` / `REDUCE_GROUP_SIZE` | 4 / 4 (ollama), 8 / 12 (deepseek) | Ukuran batch sintesis dan grup penggabungan. Reduce sengaja baru terjadi bila batch > 12 karena penggabungan membuang detail. `.env` menimpa bawaan kode: samakan dengan `.env.example`. |
 | `LLM_OUTPUT_SCALE` | `1` ollama / `1.75` deepseek | Pengali plafon token output (hanya plafon, bukan target). |
 | `KEEP_SERVER_PDFS` / `KEEP_SERVER_JSON` | `false` / `false` | Salinan opsional di `data/`. |
 | `APP_USERNAME` / `APP_PASSWORD` | `slr-user` / kosong | HTTP Basic Auth. Kosong = tanpa auth (peringatan dicetak bila provider deepseek). |
@@ -132,7 +133,8 @@ Browser                                   Flask (app.py)                        
   |  <-- {articles, errors, model, usage}
   |  state.articles += artikel baru (dedupe by hash/id); simpan ke localStorage
   |  pengguna mengubah screening_decision / eligibility_decision di tab Artikel (state.synthesis di-reset)
-  |  POST /api/synthesize (json + job_id) --> filter INCLUDE+INCLUDE -> batch -> (reduce)* -> final -> taksonomi
+  |  POST /api/synthesize (json + job_id) --> filter INCLUDE+INCLUDE -> alias ID -> batch -> (reduce)* -> final 1/2 + 2/2 -> cek cakupan -> per tema -> taksonomi
+  |  POST /api/synthesis-pdf (synthesis+articles+meta) --> synthesis_pdf.build_pdf --> application/pdf (tanpa AI)
   |       <-- polling GET /api/synthesis-progress?job_id
   |  <-- {synthesis, usage}  -> state.synthesis; render PRISMA / sintesis / taxonomy / peta literatur / system map
 ```
@@ -170,7 +172,7 @@ Peta fitur (tab 04 dan 05 sampai 10). Kolom "AI?" menunjukkan apakah ada panggil
 |---|---|---|---|
 | 04 Diagram Taksonomi | `POST /api/design-taxonomy` (hasil yang sama dengan tab 03) | tidak | `dg*`, `dgRefs`, `fmtRefs` (bagian 4.9) |
 | 05 PRISMA Flow | hitungan dari keputusan manual + `identifiedTotal`/`duplicateCount` | tidak | `renderPrisma` |
-| 06 Review Synthesis | `POST /api/synthesize` (batch, reduce, final) | ya | `renderSynthesis` |
+| 06 Review Synthesis | `POST /api/synthesize` (batch, reduce, final 2 panggilan, cek cakupan, per tema); `POST /api/synthesis-pdf` | ya | `renderSynthesis`, `downloadSynthesisPdf` |
 | 07 Matriks Ekstraksi | `authors`, `year`, `research_design.techniques` (+ `state.norm.approved`), `methods`, `context`, `findings` per artikel | tidak | `renderMatrix`, `mxRows`, `mxTechMap`, `mxDownload`, `xlsxBlob` |
 | 08 Peta Topik | `state.synthesis.taxonomy` dari `run_taxonomy`; poly dan pemeriksaan diturunkan kode | ya (satu panggilan) | `renderTaxonomy`, `topicTreeSvg`, `polyDiagram`, `derivePolyhierarchy`, `taxonomyChecks`, `retryTaxonomy` |
 | 09 Peta Literatur (tab Co-occurrence / Co-authorship / Citation) | co-occurrence: `topic_tags` + nama `concepts`; co-authorship: `authors` | tidak | `setLitTab`, `renderCooccurrence`, `ccBuild`, `ccCanon`, `renderCoauthor`, `caBuild`, `caParse` |
@@ -266,22 +268,68 @@ Body JSON: `articles` (seluruh array state), `research_question`, `inclusion`, `
 Server **menyaring sendiri**: hanya artikel dengan `screening_decision == "include"` **dan**
 `eligibility_decision == "include"`. Kosong → 400; lebih dari 250 → 400.
 
-Pipeline (semua panggilan lewat `llm_json`, jumlah langkah dihitung di awal untuk persen progres):
-1. **Batch**: artikel dipadatkan (`compact_article`, potong tiap field) lalu dibagi per `SYNTH_BATCH_SIZE`.
-   Tiap batch → `batch_synthesis_prompt` → ringkasan (overview, themes, taxonomy_seeds).
-2. **Reduce** (hanya bila ringkasan > `REDUCE_GROUP_SIZE`): gabung per grup berulang-ulang sampai muat satu
-   panggilan akhir. Grup berisi 1 ringkasan dilewatkan tanpa AI (`count_reduce_calls` meniru logika ini).
-3. **Final** (`final_synthesis_prompt`): sintesis lintas-batch dengan katalog artikel valid.
-4. **Taksonomi topik terpisah** (`taxonomy_only_prompt`, dengan `taxonomy_catalog` yang memuat metode, konsep, dan
-   ringkasan desain; hierarki 3 level dengan satu prinsip pengelompokan per level; hasil dirapikan oleh
-   `finalize_hierarchy`: perbaikan id/parent/siklus, roll-up `article_ids`, dan `taxonomy_coverage`).
-   `final_synthesis_prompt` tidak lagi meminta taksonomi. Panggilan sendiri supaya taksonomi tidak berebut batas
-   token dengan sintesis. Hasilnya `taxonomy_status` ∈ `ok` | `partial` | `fallback` | `failed` (rincian di 4.2a). Kegagalan taksonomi tidak
+Pipeline (semua panggilan lewat `llm_json`; jumlah langkah dihitung di awal untuk persen progres: `batch + reduce + 4`, lalu
+`progress.total_steps` ditambah jumlah tema setelah tema diketahui):
+
+0. **Alias ID pendek.** ID artikel asli (16 heksa) memakan banyak token output, jadi model hanya melihat `A1..An`
+   (`compact_p`, urutan = urutan artikel INCLUDE; `real_of` memetakan balik, `label_of` memberi label baca `NamaBelakang et al. Tahun`).
+   Semua hasil dikembalikan lewat `_unalias(obj, real_of, label_of)` sebelum disimpan: `article_ids`/`article_id` jadi ID asli (alias
+   asing dibuang) dan alias yang ditulis model **di dalam teks naratif** (mis. "(A12, A40)") diganti label penulis-tahun. Prompt
+   final/tema meminta rujukan inline berbentuk ID dalam kurung itu. Tes memastikan ID asli tidak pernah muncul di prompt.
+1. **Batch**: artikel dipadatkan (`compact_article`, potong tiap field) lalu dibagi per `SYNTH_BATCH_SIZE` (bawaan 8 untuk DeepSeek).
+   Tiap batch → `batch_synthesis_prompt` → ringkasan (`batch_overview`, **`gaps` lebih dulu**, themes, agreements, contradictions,
+   taxonomy_seeds, system_relationships). Prompt membatasi jumlah item dan panjang kalimat agar JSON selesai sebelum plafon.
+   `max_output_tokens=3200` (1800 bila batch ≤ 6) × `LLM_OUTPUT_SCALE`, `salvage=True`.
+2. **Reduce** (hanya bila ringkasan > `REDUCE_GROUP_SIZE`, bawaan 12): gabung per grup berulang-ulang sampai muat satu
+   panggilan akhir. Grup berisi 1 ringkasan dilewatkan tanpa AI (`count_reduce_calls` meniru logika ini). Penggabungan membuang detail,
+   jadi `REDUCE_GROUP_SIZE` sengaja lebih besar dari jumlah batch tipikal (69 artikel = 9 batch = tanpa reduce).
+3. **Final dua panggilan** (dipecah karena satu JSON besar terpotong persis di bagian akhir, yaitu `research_gaps`):
+   - 1/2 `final_synthesis_prompt`: `research_question_refinement`, `subquestions`, `executive_synthesis`, `main_themes`.
+   - 2/2 `gaps_synthesis_prompt`: `research_gaps` (6-10) lebih dulu, lalu `agreements`, `contradictions`, `limitations_of_corpus`,
+     `review_notes`. Menerima `gap_digest` = `future_research` + `limitations` tiap artikel (dipotong) sebagai dasar gap. Dicoba ulang
+     sekali bila `research_gaps` kosong; bila tetap kosong, `review_notes` diberi catatan eksplisit (tidak gagal diam-diam).
+   Keduanya `max_output_tokens=3600`, `salvage=True`.
+4. **Cek cakupan** (`coverage_prompt`): `_cited_aliases` menghitung artikel yang dikutip di tema/kesepakatan/kontradiksi/gap. Yang belum
+   terkutip ditempatkan ke tema yang ada (`assignments`, dicatat di `theme.coverage_notes`) atau dikelompokkan jadi tema baru
+   (`new_themes`). Dilewati bila semua sudah terkutip. Sisa yang masih terlewat dicatat di `review_notes`. Kegagalan langkah ini tidak
    membatalkan sintesis.
-5. `filter_references()` membuang `article_ids` yang tidak ada di korpus (mencegah AI mengarang rujukan).
+5. **Sintesis mendalam per tema** (`theme_deep_prompt`, satu panggilan per tema, `max_output_tokens=3000`): membaca temuan, metode, dan
+   keterbatasan artikel pendukung tema itu langsung (`_theme_article_slim`: temuan maks 5 × 230 karakter, metode 300), **bukan** dari ringkasan
+   batch. Mengisi `deep_synthesis`, `key_findings[{finding, article_ids}]`, `methodological_patterns`, `evidence_strength`,
+   `open_questions` pada tema. Gagal pada satu tema hanya dicatat di log; tema tetap tampil dengan `synthesis` ringkasnya.
+6. **Taksonomi topik terpisah** (`taxonomy_only_prompt`, dengan `taxonomy_catalog` yang memuat metode, konsep, dan
+   ringkasan desain; hierarki 3 level dengan satu prinsip pengelompokan per level; hasil dirapikan oleh
+   `finalize_hierarchy`: perbaikan id/parent/siklus, roll-up `article_ids`, dan `taxonomy_coverage`). Berjalan setelah alias
+   dikembalikan ke ID asli. Panggilan sendiri supaya taksonomi tidak berebut batas token dengan sintesis. Hasilnya `taxonomy_status` ∈
+   `ok` | `partial` | `fallback` | `failed` (rincian di 4.2a). Kegagalan taksonomi tidak membatalkan sintesis.
+7. `filter_references()` membuang `article_ids` yang tidak ada di korpus (mencegah AI mengarang rujukan).
    `parent_ids` taksonomi dicek di frontend.
 
+Pelajaran yang mendorong desain ini (uji nyata 69 artikel): batch 12 artikel dengan plafon ±2.6k token **selalu terpotong**; panggilan
+"perbaiki JSON" hanya merapikan teks yang sudah terpotong, jadi bagian ekor (`gaps`, `limitations_of_corpus`, `review_notes`) hilang tanpa
+suara. Sintesis yang murah sekali (< Rp800) adalah gejala itu, bukan penghematan. Setelah perbaikan: tanpa potongan, 69/69 artikel
+terkutip, 8 tema dengan sintesis mendalam, sekitar 20 panggilan dan < Rp1.000 dengan `deepseek-flash`. Cara memeriksa run sintesis:
+tidak ada baris "output terpotong" di log, `research_gaps` terisi, dan jumlah artikel terkutip = jumlah INCLUDE.
+
 Respons: `{synthesis, usage}`. Kegagalan → `{error, usage}` dengan 502.
+
+### 4.2c Unduh PDF Review Synthesis (`POST /api/synthesis-pdf`)
+
+Modul `synthesis_pdf.py` (PyMuPDF `Story`, tanpa dependensi baru, **tanpa AI dan tanpa biaya**). Tombol `#download-synthesis-pdf`
+(di `.title-actions` halaman Review Synthesis; `hidden` selama `state.synthesis` kosong dan di mode `VIEWER`) memanggil `downloadSynthesisPdf`:
+klien mengirim `{synthesis (tanpa taxonomy), articles (id,title,year,authors,doi untuk artikel di evidence_catalog), meta}` lalu menyimpan blob
+`review-synthesis-<tanggal>.pdf`.
+
+- `build_html(synthesis, articles, meta)`: merakit HTML+CSS. Semua teks lewat `_t`/`_e` (di-escape; karakter di luar font bawaan seperti ≈ → ≤ diganti ASCII
+  lewat `_SUBS`). Label rujukan dari `_label`/`_build_labels` (`NamaBelakang et al. Tahun`, kembar → akhiran a/b), sama dengan `_alias_label` di `app.py`.
+- `build_pdf(synthesis, articles, meta)`: A4, margin 56/66/56/62, `Story.write` dengan `positionfn` mengumpulkan heading untuk **bookmark**
+  (`doc.set_toc`, level dirapikan agar tidak melompat). Lewat kedua: header "Review Synthesis" (mulai halaman 2), footer dan "Halaman n / N" (butuh total halaman, jadi
+  dipasang setelah dokumen jadi). Sintesis tanpa `executive_synthesis` dan `main_themes` → `ValueError` → rute membalas 400 `{error}`; galat lain → 500.
+- Isi: judul + metadata, sintesis eksekutif, tema utama (deskripsi, `deep_synthesis`, `key_findings` bersitasi, pola metode, kekuatan bukti, pertanyaan terbuka, sumber),
+  konsistensi, kontradiksi, research gaps, limitasi, catatan verifikasi, daftar artikel rujukan (urut abjad label). Hanya teks; diagram taksonomi tidak ikut.
+- Batasan `Story` yang sudah dicoba: `page-break-inside: avoid` **tidak berpengaruh**; `background-color` pada `.note` bocor sebagai pita tipis di
+  atas heading halaman lain (jadi `.note` hanya memakai `border-left`); judul bisa terpisah dari isi di dasar halaman (label GAP digabung ke `<h3>` agar tidak yatim).
+- Tes: `tests/test_synthesis_pdf.py` (18 pengecekan).
 
 ### 4.3 Progres (`GET /api/analysis-progress`, `GET /api/synthesis-progress`)
 
@@ -305,6 +353,7 @@ dengan baris final (token masuk/keluar, cache, detik, biaya). Retry dicatat seba
 | `GET /app` | ya | Workspace (`index.html`). Tombol di landing mengarah ke sini; `/app#<id-tab>` membuka tab langsung. |
 | `GET /api/health` | ya | Status AI + limits (`max_files_per_batch`, `max_file_mb`, `max_text_chars`, `synth_batch_size`, `keep_server_*`) + `pricing` (periode, waktu pergantian, tarif efektif; `null` untuk Ollama). |
 | `POST /api/taxonomy` | ya | Buat ulang HANYA peta topik (satu panggilan AI) dari artikel INCLUDE + `main_themes` yang sudah ada. Body: `articles`, `main_themes`, `research_question`. Dipakai tombol "Buat ulang peta topik". Respons: `{taxonomy, taxonomy_coverage, taxonomy_status, taxonomy_note?, usage}`; gagal total → 502 `{error, usage}`. |
+| `POST /api/synthesis-pdf` | ya | Susun hasil Review Synthesis jadi PDF A4 (bagian 4.2c). Body: `{synthesis, articles[], meta{research_question, source_name, search_date}}`. Respons: `application/pdf` dengan `Content-Disposition: attachment`, tanpa cache. Sintesis kosong atau body bukan JSON → 400 `{error}`; galat penyusunan → 500. Tanpa AI. |
 | `POST /api/export-html` | ya | Merakit ekspor proyek HTML hanya-baca (bagian 4.2b). Body: `{state, design:{article_ids, topic, normalization}}`. Respons: `text/html` (tanpa cache). `state` tanpa daftar `articles` → 400. |
 | `GET /api/test-ai` | ya | Satu panggilan kecil non-streaming untuk uji koneksi/JSON; mengembalikan `usage`. |
 | `GET`/`POST /signup` | tidak | Hanya mode terkelola (`user_auth.py`). GET menampilkan form; POST mendaftar dan menulis `USER_API_KEY` ke `.env`. Bila sudah terdaftar atau mode mati, dialihkan ke `/app`. Gerbang `_gate` mengalihkan jalur lain ke sini selama key kosong (bagian 9.1). |
@@ -532,7 +581,7 @@ tetap menambah keduanya, supaya hitungan PRISMA konsisten.
 
 ### 5.3 Hasil sintesis (`state.synthesis`)
 
-`research_question_refinement`, `subquestions[]`, `executive_synthesis`, `main_themes[]`, `agreements[]`,
+`research_question_refinement`, `subquestions[]`, `executive_synthesis`, `main_themes[]` (tiap tema: `name`, `description`, `synthesis`, `confidence`, `article_ids`, dan dari sintesis mendalam `deep_synthesis`, `key_findings[{finding, article_ids}]`, `methodological_patterns`, `evidence_strength`, `open_questions[]`; opsional `coverage_notes[{article_id, note}]` dari cek cakupan), `agreements[]`,
 `contradictions[]`, `research_gaps[]`, `limitations_of_corpus[]`, `review_notes[]`, dan `taxonomy{hierarchical, faceted, flat,
 polyhierarchy, matrix}`. Metadata tambahan dari server: `taxonomy_status` (`ok`|`partial`|`fallback`|`failed`), `taxonomy_note|taxonomy_error`,
 `included_article_count`, `generated_at`, `model`, `evidence_catalog`. Semua `article_ids` merujuk `record.id`. Field `system_map` **tidak lagi dibuat** (System Map dibangun kode, 4.2a); ekspor lama yang masih memuatnya
@@ -561,6 +610,9 @@ Semua panggilan AI melewati `llm_json(prompt, max_output_tokens, usage, progress
   (`finish_reason=length`). Percobaan kedua memakai pesan perbaikan JSON dan plafon +700 token. Token dari
   percobaan gagal **tetap dihitung dan ditagih**.
 - `extract_json()` toleran terhadap pagar markdown dan teks di sekitar objek.
+- **`salvage=True`**: JSON yang terpotong diselamatkan **secara lokal** (`repair_truncated_json`, tanpa panggilan ulang); hasilnya membawa kunci `_salvaged`
+  (jumlah karakter ekor yang dibuang) yang harus dibuang pemanggil (`pop`). Dipakai batch, reduce, final, cek cakupan, per tema, dan taksonomi. Ingat: bagian
+  yang terpotong **hilang**, jadi urutan key pada skema prompt penting (yang paling penting, mis. `gaps`/`research_gaps`, ditaruh di depan).
 - Error HTTP DeepSeek dipetakan ke pesan Indonesia (401 key salah, 402 saldo habis, 429 rate limit, 5xx).
 - Timeout socket 600 detik per panggilan.
 - **Mode terkelola:** `llm_json` tidak berubah. `DEEPSEEK_URL` menunjuk ke proxy dan `Authorization: Bearer` berisi `USER_API_KEY`
@@ -589,6 +641,9 @@ Mode terkelola punya dua penghitung dari blok `usage` yang sama: popup token di 
 `token_logs` di Supabase (per akun, dicatat proxy, tidak bisa diubah dari klien). Terverifikasi pada uji nyata: 10 jurnal menghasilkan
 10 baris `token_logs`, dan tiap panggilan sintesis (termasuk percobaan ulang) cocok persis dengan baris log proses di app. Biaya rupiah
 hanya ada di popup (dihitung klien); `token_logs` menyimpan token, bukan biaya.
+
+Contoh nyata sintesis 69 artikel (`deepseek-flash`): ±20 panggilan, ±193 ribu token input dan ±32 ribu output, **< Rp1.000** (9 batch + 2 final + 1 cek cakupan + 8 tema + taksonomi).
+Biaya rendah itu wajar karena model murah; yang menjadi ukuran kualitas adalah tidak adanya potongan output, bukan angka rupiah.
 
 Pola biaya: output mendominasi (≈ dua pertiga biaya), cache hit jarang karena dokumen berbeda, sintesis memproses
 ulang **semua** artikel INCLUDE setiap kali dijalankan (tidak inkremental). Retry menggandakan biaya panggilan itu.
@@ -741,6 +796,8 @@ pendaftaran berhasil/gagal, penulisan `.env` tanpa merusak baris lain, key aktif
 lapisan `.env.example`). Edge Function dan SQL **belum punya tes otomatis**; ujinya manual (bagian 9.1). Skrip jsdom memuat `/app` (bukan `/`, yang kini landing).
 
 Tes SLR lanjutan dan ekspor HTML (tanpa jaringan, tanpa API key; masing-masing mengatur `USER_AUTH=off` sendiri):
+- `python tests/test_synthesis_pipeline.py` (14 pengecekan): `/api/synthesize` dengan `llm_json` ditiru pada 37 artikel. Memeriksa ID asli tidak bocor ke prompt, `research_gaps`/limitasi terisi, cek cakupan menempatkan artikel yang terlewat dan menambah tema baru, tiap tema punya sintesis mendalam, `article_ids` kembali ke ID asli (ID rekaan dibuang), alias di teks naratif diganti penulis-tahun, dan cek cakupan dilewati bila semua sudah terkutip.
+- `python tests/test_synthesis_pdf.py` (18 pengecekan): `build_pdf` menghasilkan PDF yang benar (bagian utama, escape HTML, diakritik, nomor halaman, bookmark, label kembar a/b, ID asing tidak bocor, input kosong → `ValueError`, dokumen panjang multi-halaman) dan rute `/api/synthesis-pdf` (200 PDF + header unduhan, 400 untuk kosong/bukan JSON).
 - `python tests/test_json_repair.py` (64 pengecekan): `repair_truncated_json` pada banyak titik potong, `run_taxonomy` (status `partial`/`failed`), rute `/api/taxonomy`.
 - `python tests/test_export_html.py [proyek.json [keluar.html]]` (20 pengecekan): rute `/api/export-html`, HTML rapi (tepat dua elemen `<script>`, tanpa tag Jinja,
   tanpa sumber eksternal yang dimuat otomatis, CSP terpasang), data tertanam sama dengan proyek, setiap `<script>` lolos `node --check`, teks artikel yang
@@ -838,7 +895,9 @@ Urut kira-kira berdasarkan dampak:
 | Ingin… | Ubah di… |
 |---|---|
 | Menambah/mengubah field ekstraksi artikel | `article_prompt` (skema), pembentukan `record` di `analyze_pdfs`, `compact_article`, lalu `renderArticleDetail` di `app.js` |
-| Mengubah perilaku sintesis | `batch_synthesis_prompt`, `reduce_summaries_prompt`, `final_synthesis_prompt`, `taxonomy_only_prompt`; bentuk keluaran dipakai `renderSynthesis`/`renderTaxonomy`/`renderSystemMap` |
+| Mengubah perilaku sintesis | `batch_synthesis_prompt`, `reduce_summaries_prompt`, `final_synthesis_prompt` (1/2), `gaps_synthesis_prompt` (2/2), `coverage_prompt`, `theme_deep_prompt`, `taxonomy_only_prompt`; plafon token di endpoint `synthesize`; bentuk keluaran dipakai `renderSynthesis`/`renderTaxonomy`/`renderSystemMap` dan `synthesis_pdf.build_html`. Jaga urutan key skema (bagian penting di depan) |
+| Mengubah isi atau tampilan PDF Review Synthesis | `synthesis_pdf.py` (`build_html` untuk isi, `CSS` untuk tampilan, `build_pdf` untuk header/footer/bookmark); tombol dan unduhan di `downloadSynthesisPdf` (`app.js`), tombol `#download-synthesis-pdf` di `index.html`; jalankan `tests/test_synthesis_pdf.py` |
+| Mengubah label rujukan penulis-tahun | `_alias_label` (`app.py`, teks hasil sintesis) dan `_label` (`synthesis_pdf.py`, daftar rujukan PDF); jaga keduanya sama |
 | Menambah/mengubah nilai research onion | `RESEARCH_ONION` (+ `METHOD_GROUPS`, naikkan `CODEBOOK_VERSION`); prompt, validasi, dan taksonomi mengikuti otomatis |
 | Mengubah batas | `.env` (lihat tabel bagian 3); bawaan ada di blok "Batas bawaan" `app.py`. Untuk semua pengguna mode terkelola: ubah di `.env.example` (atau bawaan di kode), lalu push |
 | Mengubah tarif/jadwal peak | `.env` (`DEEPSEEK_PRICE_*`, `DEEPSEEK_PEAK_MULTIPLIER`); jadwal di `deepseek_is_peak` dan `deepseek_pricing_info` |
